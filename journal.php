@@ -61,17 +61,35 @@ class Journal {
 
     // Update journal entry
     public function update($id, $user_id, $title, $content, $entry_date, $images = []) {
-        $stmt = $this->conn->prepare("UPDATE journals SET title = ?, content = ?, entry_date = ? WHERE id = ? AND user_id = ?");
-        $stmt->bind_param("sssii", $title, $content, $entry_date, $id, $user_id);
-        
-        if ($stmt->execute()) {
-            // Handle new image uploads
-            if (!empty($images)) {
-                $this->saveImages($id, $images);
+        try {
+            // Start transaction
+            $this->conn->begin_transaction();
+    
+            // Update journal entry
+            $stmt = $this->conn->prepare("UPDATE journals SET title = ?, content = ?, entry_date = ? WHERE id = ? AND user_id = ?");
+            $stmt->bind_param("sssii", $title, $content, $entry_date, $id, $user_id);
+            
+            if ($stmt->execute()) {
+                // Handle new image uploads if any
+                if (!empty($images['tmp_name'][0])) {
+                    $this->saveImages($id, $images, $title);
+                }
+                
+                // Commit transaction
+                $this->conn->commit();
+                return true;
             }
-            return true;
+    
+            // If we get here, something went wrong
+            $this->conn->rollback();
+            return false;
+    
+        } catch (Exception $e) {
+            // Rollback transaction on error
+            $this->conn->rollback();
+            error_log("Journal update error: " . $e->getMessage());
+            return false;
         }
-        return false;
     }
 
     // Delete journal entry
@@ -218,6 +236,12 @@ class Journal {
     
         $stmt = $this->conn->prepare("INSERT INTO journal_images (journal_id, image_path) VALUES (?, ?)");
         
+        // Get current number of images for this journal
+        $count_stmt = $this->conn->prepare("SELECT COUNT(*) as count FROM journal_images WHERE journal_id = ?");
+        $count_stmt->bind_param("i", $journal_id);
+        $count_stmt->execute();
+        $current_count = $count_stmt->get_result()->fetch_assoc()['count'];
+        
         foreach ($images['tmp_name'] as $key => $tmp_name) {
             // Get original file extension
             $file_extension = strtolower(pathinfo($images['name'][$key], PATHINFO_EXTENSION));
@@ -227,7 +251,7 @@ class Journal {
                 'journal_%d_%s_%d_%s.%s',
                 $journal_id,
                 $title_part,
-                $key + 1,
+                $current_count + $key + 1, // Continue numbering from existing images
                 date('YmdHis'),
                 $file_extension
             );

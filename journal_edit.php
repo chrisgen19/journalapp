@@ -203,6 +203,48 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             color: #6c757d;
             margin-top: 0.5rem;
         }
+
+        .current-images {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+            gap: 1rem;
+            padding: 1rem;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+        .image-wrapper {
+            position: relative;
+        }
+        .preview-image {
+            width: 100px;
+            height: 100px;
+            object-fit: cover;
+            border-radius: 8px;
+            transition: transform 0.2s;
+        }
+        .image-remove {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            width: 24px;
+            height: 24px;
+            background: #dc3545;
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        .image-wrapper:hover .image-remove {
+            opacity: 1;
+        }
+        .image-wrapper:hover .preview-image {
+            transform: scale(1.05);
+        }
+
         @media (max-width: 768px) {
             .journal-card {
                 padding: 1.5rem;
@@ -266,16 +308,14 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
                     <!-- Current Images -->
                     <?php if (!empty($entry['images'])): ?>
-                    <div class="current-images">
-                        <h3 class="current-images-title">
-                            <i class="fas fa-images me-2"></i>Current Images
-                        </h3>
-                        <div class="image-grid">
+                    <div class="mb-3">
+                        <label class="form-label">Current Images</label>
+                        <div class="current-images">
                             <?php foreach ($entry['images'] as $image): ?>
                                 <div class="image-wrapper">
                                     <img src="<?php echo htmlspecialchars($image); ?>" class="preview-image">
                                     <div class="image-remove" onclick="removeImage(this)" 
-                                         data-image="<?php echo htmlspecialchars($image); ?>">
+                                        data-image="<?php echo htmlspecialchars($image); ?>">
                                         <i class="fas fa-times"></i>
                                     </div>
                                 </div>
@@ -376,6 +416,39 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 element.parentElement.style.display = 'none';
             }
         }
+    </script>
+
+    <script>
+    function removeImage(element) {
+        if (confirm('Are you sure you want to remove this image?')) {
+            const imagePath = element.dataset.image;
+            const journalId = <?php echo $id; ?>; // Get the journal ID from PHP
+
+            // Send AJAX request to delete the image
+            fetch('delete_image.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    journal_id: journalId,
+                    image_path: imagePath
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    element.parentElement.style.display = 'none';
+                } else {
+                    alert('Failed to delete image: ' + data.message);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Failed to delete image');
+            });
+        }
+    }
     </script>
 </body>
 </html>
