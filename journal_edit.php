@@ -2,9 +2,11 @@
 require_once 'config.php';
 require_once 'auth.php';
 require_once 'journal.php';
+require_once 'tag_manager.php';
 
 $auth = new Auth($conn);
 $journal = new Journal($conn);
+$tagManager = new TagManager($conn);
 
 if (!$auth->isLoggedIn()) {
     header("Location: login.php");
@@ -19,13 +21,24 @@ if (!$entry) {
     exit();
 }
 
+// Get current tags for this journal
+$currentTags = $tagManager->getJournalTags($id);
+$currentTagNames = [];
+while ($tag = $currentTags->fetch_assoc()) {
+    $currentTagNames[] = $tag['name'];
+}
+
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $title = trim($_POST['title']);
     $content = trim($_POST['content']);
     $entry_date = $_POST['entry_date'];
     $images = isset($_FILES['images']) ? $_FILES['images'] : [];
+    $tags = isset($_POST['tags']) ? explode(',', $_POST['tags']) : [];
     
     if ($journal->update($id, $_SESSION['user_id'], $title, $content, $entry_date, $images)) {
+        // Update tags
+        $tagManager->addTagsToJournal($id, $tags, $_SESSION['user_id']);
+        
         header("Location: journal_view.php?id=" . $id);
         exit();
     } else {
@@ -47,6 +60,42 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     <link href="https://cdn.jsdelivr.net/npm/easymde/dist/easymde.min.css" rel="stylesheet">
     <!-- Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Merriweather:ital,wght@0,300;0,400;0,700;1,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <!-- Tom Select for Tags -->
+    <link href="https://cdn.jsdelivr.net/npm/tom-select@2.2.2/dist/css/tom-select.bootstrap5.css" rel="stylesheet">
+    <style>
+        /* Tag Input Styles */
+        .ts-wrapper {
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+        }
+        .ts-wrapper.focus {
+            border-color: #4a90e2;
+            box-shadow: 0 0 0 0.2rem rgba(74, 144, 226, 0.15);
+        }
+        .ts-dropdown {
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .ts-dropdown .active {
+            background-color: #4a90e2;
+            color: white;
+        }
+        .ts-control {
+            min-height: 45px;
+            padding: 0.5rem;
+        }
+        .ts-control .item {
+            background: #4a90e2;
+            color: white;
+            border-radius: 4px;
+            padding: 2px 8px;
+        }
+        .ts-control .item.active {
+            background: #357abd;
+        }
+    </style>
     <style>
         body {
             background-color: #f8f9fa;
@@ -339,6 +388,25 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                         </div>
                     </div>
 
+                    <div class="mb-4">
+                        <label for="tags" class="form-label">
+                            <i class="fas fa-tags me-2"></i>Tags
+                        </label>
+                        <select id="tags" name="tags" multiple placeholder="Add tags...">
+                            <?php 
+                            $userTags = $tagManager->getUserTags($_SESSION['user_id']);
+                            while ($tag = $userTags->fetch_assoc()): 
+                                $selected = in_array($tag['name'], $currentTagNames);
+                            ?>
+                                <option value="<?php echo htmlspecialchars($tag['name']); ?>" 
+                                        <?php echo $selected ? 'selected' : ''; ?>>
+                                    <?php echo htmlspecialchars($tag['name']); ?>
+                                </option>
+                            <?php endwhile; ?>
+                        </select>
+                        <small class="text-muted">Enter tags to organize your entries</small>
+                    </div>
+
                     <!-- Action Buttons -->
                     <div class="action-buttons">
                         <button type="submit" class="btn btn-primary">
@@ -357,6 +425,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/easymde/dist/easymde.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tom-select@2.2.2/dist/js/tom-select.complete.min.js"></script>
     <script>
         // Initialize EasyMDE
         const easyMDE = new EasyMDE({
@@ -449,6 +518,18 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             });
         }
     }
+    </script>
+
+    <script>
+        // Initialize Tom Select for tags
+        new TomSelect('#tags', {
+            persist: false,
+            createOnBlur: true,
+            create: true,
+            maxItems: 10,
+            plugins: ['remove_button'],
+            placeholder: 'Add tags...'
+        });
     </script>
 </body>
 </html>

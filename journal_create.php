@@ -3,9 +3,11 @@
 require_once 'config.php';
 require_once 'auth.php';
 require_once 'journal.php';
+require_once 'tag_manager.php';
 
 $auth = new Auth($conn);
 $journal = new Journal($conn);
+$tagManager = new TagManager($conn);
 
 // Check if user is logged in
 if (!$auth->isLoggedIn()) {
@@ -19,6 +21,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $content = trim($_POST['content']);
     $entry_date = $_POST['entry_date'];
     $images = isset($_FILES['images']) ? $_FILES['images'] : [];
+    $tags = isset($_POST['tags']) ? explode(',', $_POST['tags']) : [];
 
     // Basic validation
     $errors = [];
@@ -34,12 +37,17 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
     // If no errors, create the journal entry
     if (empty($errors)) {
-        if ($journal->create($_SESSION['user_id'], $title, $content, $entry_date, $images)) {
+        if ($journalId = $journal->create($_SESSION['user_id'], $title, $content, $entry_date, $images)) {
+            // Add tags if any
+            if (!empty($tags)) {
+                $tagManager->addTagsToJournal($journalId, $tags, $_SESSION['user_id']);
+            }
             $_SESSION['message'] = "Journal entry created successfully!";
             $_SESSION['message_type'] = "success";
             header("Location: journals.php");
             exit();
-        } else {
+        }
+        else {
             $errors[] = "Failed to create journal entry";
         }
     }
@@ -59,6 +67,42 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     <link href="https://cdn.jsdelivr.net/npm/easymde/dist/easymde.min.css" rel="stylesheet">
     <!-- Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Merriweather:ital,wght@0,300;0,400;0,700;1,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <!-- Tom Select for Tags -->
+    <link href="https://cdn.jsdelivr.net/npm/tom-select@2.2.2/dist/css/tom-select.bootstrap5.css" rel="stylesheet">
+    <style>
+        /* Tag Input Styles */
+        .ts-wrapper {
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+        }
+        .ts-wrapper.focus {
+            border-color: #4a90e2;
+            box-shadow: 0 0 0 0.2rem rgba(74, 144, 226, 0.15);
+        }
+        .ts-dropdown {
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .ts-dropdown .active {
+            background-color: #4a90e2;
+            color: white;
+        }
+        .ts-control {
+            min-height: 45px;
+            padding: 0.5rem;
+        }
+        .ts-control .item {
+            background: #4a90e2;
+            color: white;
+            border-radius: 4px;
+            padding: 2px 8px;
+        }
+        .ts-control .item.active {
+            background: #357abd;
+        }
+    </style>
     <style>
         body {
             background-color: #f8f9fa;
@@ -255,6 +299,23 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                         <div id="preview-images" class="mt-2"></div>
                     </div>
 
+                    <div class="mb-3">
+                        <label for="tags" class="form-label">
+                            <i class="fas fa-tags me-2"></i>Tags
+                        </label>
+                        <select id="tags" name="tags" multiple placeholder="Add tags...">
+                            <?php 
+                            $userTags = $tagManager->getUserTags($_SESSION['user_id']);
+                            while ($tag = $userTags->fetch_assoc()): 
+                            ?>
+                                <option value="<?php echo htmlspecialchars($tag['name']); ?>">
+                                    <?php echo htmlspecialchars($tag['name']); ?>
+                                </option>
+                            <?php endwhile; ?>
+                        </select>
+                        <small class="text-muted">Enter tags to organize your entries</small>
+                    </div>
+
                     <div class="d-flex justify-content-between">
                         <button type="submit" class="btn btn-primary">Create Journal Entry</button>
                         <a href="journals.php" class="btn btn-link">Cancel</a>
@@ -318,6 +379,19 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 }
             }
         }
+    </script>
+
+    <script src="https://cdn.jsdelivr.net/npm/tom-select@2.2.2/dist/js/tom-select.complete.min.js"></script>
+    <script>
+        // Initialize Tom Select for tags
+        new TomSelect('#tags', {
+            persist: false,
+            createOnBlur: true,
+            create: true,
+            maxItems: 10,
+            plugins: ['remove_button'],
+            placeholder: 'Add tags...'
+        });
     </script>
 </body>
 </html>

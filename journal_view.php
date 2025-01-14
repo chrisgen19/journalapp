@@ -2,6 +2,8 @@
 require_once 'config.php';
 require_once 'auth.php';
 require_once 'journal.php';
+require_once 'tag_manager.php';
+$tagManager = new TagManager($conn);
 
 $auth = new Auth($conn);
 $journal = new Journal($conn);
@@ -193,6 +195,30 @@ if (!$entry) {
             align-items: center;
             gap: 0.5rem;
         }
+
+        .journal-tags {
+            margin: 1.5rem 0;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+        .journal-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.4rem 0.8rem;
+            background: #f8f9fa;
+            border-radius: 50px;
+            color: #4a5568;
+            text-decoration: none;
+            transition: all 0.2s ease;
+        }
+        .journal-tag:hover {
+            background: #4a90e2;
+            color: white;
+            transform: translateY(-1px);
+        }
+
         @media (max-width: 768px) {
             .journal-card {
                 padding: 1.5rem;
@@ -252,6 +278,20 @@ if (!$entry) {
                             </a>
                         <?php endforeach; ?>
                     </div>
+                </div>
+                <?php endif; ?>
+
+                <?php
+                $journalTags = $tagManager->getJournalTags($entry['id']);
+                if ($journalTags->num_rows > 0):
+                ?>
+                <div class="journal-tags">
+                    <?php while ($tag = $journalTags->fetch_assoc()): ?>
+                        <a href="journals_by_tag.php?id=<?php echo $tag['id']; ?>" class="journal-tag">
+                            <i class="fas fa-tag"></i>
+                            <?php echo htmlspecialchars($tag['name']); ?>
+                        </a>
+                    <?php endwhile; ?>
                 </div>
                 <?php endif; ?>
 

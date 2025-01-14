@@ -2,7 +2,9 @@
 require_once 'config.php';
 require_once 'auth.php';
 require_once 'journal.php';
+require_once 'tag_manager.php';
 
+$tagManager = new TagManager($conn);
 $auth = new Auth($conn);
 $journal = new Journal($conn);
 
@@ -313,6 +315,35 @@ body {
             text-align: center;
             margin-top: 0.5rem;
         }
+
+        .journal-card-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid #e9ecef;
+        }
+        .journal-card-tag {
+            font-size: 0.8rem;
+            padding: 0.25rem 0.75rem;
+            background: #f8f9fa;
+            color: #4a5568;
+            border-radius: 50px;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            transition: all 0.2s;
+        }
+        .journal-card-tag:hover {
+            background: #4a90e2;
+            color: white;
+            transform: translateY(-1px);
+        }
+        .journal-card-tag i {
+            font-size: 0.75rem;
+        }
     </style>
 </head>
 <body>
@@ -383,6 +414,20 @@ body {
                                     <div class="journal-preview">
                                         <?php echo htmlspecialchars($preview) . '...'; ?>
                                     </div>
+
+                                    <!-- Add this new section for tags -->
+                                    <?php
+                                    $entryTags = $tagManager->getJournalTags($entry['id']);
+                                    if ($entryTags->num_rows > 0): ?>
+                                        <div class="journal-card-tags">
+                                            <?php while ($tag = $entryTags->fetch_assoc()): ?>
+                                                <a href="journals_by_tag.php?id=<?php echo $tag['id']; ?>" class="journal-card-tag">
+                                                    <i class="fas fa-tag"></i>
+                                                    <?php echo htmlspecialchars($tag['name']); ?>
+                                                </a>
+                                            <?php endwhile; ?>
+                                        </div>
+                                    <?php endif; ?>
                                 </div>
 
                                 <div class="journal-footer">
