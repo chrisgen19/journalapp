@@ -28,7 +28,6 @@ class TagManager {
     }
 
     // Add tags to a journal entry
-    // Update this method in tag_manager.php
     public function addTagsToJournal($journal_id, $tags, $user_id) {
         $this->conn->begin_transaction();
         try {

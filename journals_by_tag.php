@@ -8,6 +8,8 @@ $auth = new Auth($conn);
 $journal = new Journal($conn);
 $tagManager = new TagManager($conn);
 
+$user = $auth->getUserDetails($_SESSION['user_id']);
+
 if (!$auth->isLoggedIn()) {
     header("Location: login.php");
     exit();

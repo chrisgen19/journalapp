@@ -1,5 +1,6 @@
 <?php
 // navbar.php
+
 ?>
 <!-- Add this style block to your main page's head section -->
 <style>
@@ -63,13 +64,23 @@
     .user-avatar {
         width: 35px;
         height: 35px;
-        border-radius: 50%;
-        background: #f8f9fa;
-        display: flex;
+        background: #4a90e2;
+        border-radius: 60px;
+        display: flex
+    ;
         align-items: center;
         justify-content: center;
-        color: #4a5568;
+        color: white;
+        font-size: 3rem;
+        flex-shrink: 0;
+        overflow: hidden;
         margin-right: 0.75rem;
+    }
+
+    .user-avatar img{
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
     }
 
     .user-name {
@@ -303,7 +314,11 @@
                 <div class="nav-item dropdown user-menu">
                     <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
                         <span class="user-avatar">
-                            <i class="fas fa-user"></i>
+                            <?php if ($user['profile_photo']): ?>
+                                <img src="<?php echo htmlspecialchars($user['profile_photo']); ?>" alt="Profile photo" class="profile-image">
+                            <?php else: ?>
+                                <i class="fas fa-user"></i>
+                            <?php endif; ?>
                         </span>
                         <span class="user-name"><?php echo htmlspecialchars($_SESSION['username']); ?></span>
                     </a>

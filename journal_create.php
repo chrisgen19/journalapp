@@ -9,6 +9,8 @@ $auth = new Auth($conn);
 $journal = new Journal($conn);
 $tagManager = new TagManager($conn);
 
+$user = $auth->getUserDetails($_SESSION['user_id']);
+
 // Check if user is logged in
 if (!$auth->isLoggedIn()) {
     header("Location: login.php");
@@ -21,7 +23,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $content = trim($_POST['content']);
     $entry_date = $_POST['entry_date'];
     $images = isset($_FILES['images']) ? $_FILES['images'] : [];
-    $tags = isset($_POST['tags']) ? explode(',', $_POST['tags']) : [];
+    $tags = isset($_POST['tags']) ? (is_array($_POST['tags']) ? $_POST['tags'] : explode(',', $_POST['tags'])) : [];
 
     // Basic validation
     $errors = [];
@@ -303,7 +305,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                         <label for="tags" class="form-label">
                             <i class="fas fa-tags me-2"></i>Tags
                         </label>
-                        <select id="tags" name="tags" multiple placeholder="Add tags...">
+                        <select id="tags" name="tags[]" multiple placeholder="Add tags...">
                             <?php 
                             $userTags = $tagManager->getUserTags($_SESSION['user_id']);
                             while ($tag = $userTags->fetch_assoc()): 
