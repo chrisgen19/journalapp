@@ -55,7 +55,7 @@ class Auth {
 
     // Get user details
     public function getUserDetails($user_id) {
-        $stmt = $this->conn->prepare("SELECT id, username, email, created_at FROM users WHERE id = ?");
+        $stmt = $this->conn->prepare("SELECT id, username, email, created_at, profile_photo FROM users WHERE id = ?");
         $stmt->bind_param("i", $user_id);
         $stmt->execute();
         return $stmt->get_result()->fetch_assoc();
@@ -73,6 +73,13 @@ class Auth {
         $hashed_password = password_hash($new_password, PASSWORD_DEFAULT);
         $stmt = $this->conn->prepare("UPDATE users SET password = ? WHERE id = ?");
         $stmt->bind_param("si", $hashed_password, $user_id);
+        return $stmt->execute();
+    }
+
+    // Add this method to your Auth class in auth.php
+    public function updateProfilePhoto($user_id, $photo_path) {
+        $stmt = $this->conn->prepare("UPDATE users SET profile_photo = ? WHERE id = ?");
+        $stmt->bind_param("si", $photo_path, $user_id);
         return $stmt->execute();
     }
 }

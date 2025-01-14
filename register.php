@@ -43,239 +43,451 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Register - Daily Journal</title>
-    <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-    <!-- Font Awesome -->
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Merriweather:ital,wght@0,300;0,400;0,700;1,400&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         body {
+            font-family: 'Inter', sans-serif;
             background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
             min-height: 100vh;
+        }
+
+        .split-container {
+            display: flex;
+            min-height: 100vh;
+            background: white;
+            box-shadow: 0 0 50px rgba(0,0,0,0.1);
+        }
+
+        /* Showcase Section */
+        .showcase {
+            flex: 1;
+            background: linear-gradient(135deg, #4a90e2 0%, #357abd 100%);
+            padding: 3rem;
+            display: none;
+            color: white;
+            position: relative;
+            overflow: hidden;
+        }
+
+        @media (min-width: 992px) {
+            .showcase {
+                display: flex;
+                flex-direction: column;
+                justify-content: space-between;
+            }
+        }
+
+        .showcase-content {
+            position: relative;
+            z-index: 2;
+        }
+
+        .showcase-brand {
             display: flex;
             align-items: center;
-            padding: 40px 0;
+            gap: 1rem;
+            margin-bottom: 3rem;
         }
-        .register-container {
-            max-width: 500px;
-            margin: 0 auto;
-            padding: 0 20px;
-        }
-        .register-header {
-            text-align: center;
-            margin-bottom: 2rem;
-        }
-        .register-logo {
-            width: 80px;
-            height: 80px;
-            background: #fff;
-            border-radius: 50%;
+
+        .brand-logo {
+            width: 50px;
+            height: 50px;
+            background: white;
+            border-radius: 15px;
             display: flex;
             align-items: center;
             justify-content: center;
-            margin: 0 auto 1rem;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            color: #4a90e2;
+            font-size: 1.5rem;
         }
-        .register-logo i {
-            font-size: 2rem;
-            color: #007bff;
+
+        .brand-name {
+            font-family: 'Merriweather', serif;
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin: 0;
         }
-        .register-card {
-            background: white;
-            border-radius: 15px;
-            box-shadow: 0 10px 20px rgba(0,0,0,0.1);
-            overflow: hidden;
+
+        .showcase h1 {
+            font-family: 'Merriweather', serif;
+            font-size: 3rem;
+            font-weight: 700;
+            margin-bottom: 1.5rem;
+            line-height: 1.2;
         }
-        .register-card .card-body {
-            padding: 2rem;
+
+        .showcase p {
+            font-size: 1.1rem;
+            margin-bottom: 2rem;
+            opacity: 0.9;
+            line-height: 1.6;
         }
-        .form-control {
-            border: 2px solid #e9ecef;
-            padding: 0.75rem 1rem;
-            font-size: 1rem;
-            border-radius: 8px;
-            transition: all 0.3s ease;
+
+        .feature-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
         }
-        .form-control:focus {
-            border-color: #007bff;
-            box-shadow: 0 0 0 0.2rem rgba(0,123,255,0.15);
+
+        .feature-item {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+            font-size: 1.1rem;
         }
-        .input-group-text {
-            border: 2px solid #e9ecef;
-            background: #f8f9fa;
-            border-right: none;
-            border-top-left-radius: 8px;
-            border-bottom-left-radius: 8px;
+
+        .feature-icon {
+            width: 40px;
+            height: 40px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
         }
-        .input-group .form-control {
-            border-left: none;
-            border-top-left-radius: 0;
-            border-bottom-left-radius: 0;
+
+        /* Register Section */
+        .register-section {
+            flex: 1;
+            padding: 3rem;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            max-width: 100%;
+            overflow-y: auto;
         }
-        .btn-register {
-            padding: 0.75rem 1.5rem;
-            font-size: 1rem;
-            border-radius: 8px;
-            width: 100%;
-            font-weight: 500;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-top: 1rem;
+
+        @media (min-width: 992px) {
+            .register-section {
+                max-width: 500px;
+            }
         }
-        .login-link {
+
+        .register-header {
             text-align: center;
-            margin-top: 1.5rem;
+            margin-bottom: 2.5rem;
+        }
+
+        .register-title {
+            font-family: 'Merriweather', serif;
+            font-size: 2rem;
+            color: #1a202c;
+            margin-bottom: 0.5rem;
+        }
+
+        .register-subtitle {
             color: #6c757d;
         }
-        .login-link a {
-            color: #007bff;
-            text-decoration: none;
-            font-weight: 500;
+
+        .form-floating {
+            margin-bottom: 1rem;
         }
+
+        .form-floating .form-control {
+            border: 2px solid #e9ecef;
+            border-radius: 12px;
+            height: calc(3.5rem + 2px);
+            padding: 1rem 1rem;
+        }
+
+        .form-floating .form-control:focus {
+            border-color: #4a90e2;
+            box-shadow: 0 0 0 0.25rem rgba(74, 144, 226, 0.1);
+        }
+
+        .form-floating label {
+            padding: 1rem;
+        }
+
+        .password-toggle {
+            position: absolute;
+            right: 1rem;
+            top: 50%;
+            transform: translateY(-50%);
+            cursor: pointer;
+            color: #6c757d;
+            z-index: 5;
+        }
+
+        .password-strength {
+            height: 4px;
+            background: #e9ecef;
+            margin-top: 0.5rem;
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .password-strength-bar {
+            height: 100%;
+            width: 0;
+            transition: all 0.3s ease;
+            border-radius: 2px;
+        }
+
+        .form-check {
+            margin: 1rem 0;
+        }
+
+        .form-check-input:checked {
+            background-color: #4a90e2;
+            border-color: #4a90e2;
+        }
+
+        .btn-register {
+            width: 100%;
+            padding: 0.8rem;
+            font-size: 1rem;
+            font-weight: 600;
+            border-radius: 12px;
+            margin-top: 1rem;
+            background: #4a90e2;
+            border: none;
+            transition: all 0.3s ease;
+        }
+
+        .btn-register:hover {
+            background: #357abd;
+            transform: translateY(-1px);
+        }
+
+        .login-link {
+            text-align: center;
+            margin-top: 2rem;
+            color: #6c757d;
+        }
+
+        .login-link a {
+            color: #4a90e2;
+            text-decoration: none;
+            font-weight: 600;
+        }
+
         .login-link a:hover {
             text-decoration: underline;
         }
-        .error-shake {
-            animation: shake 0.5s;
+
+        .alert {
+            border-radius: 12px;
+            padding: 1rem;
+            margin-bottom: 1.5rem;
         }
-        @keyframes shake {
-            0%, 100% { transform: translateX(0); }
-            10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); }
-            20%, 40%, 60%, 80% { transform: translateX(5px); }
-        }
-        .password-toggle {
-            cursor: pointer;
-            padding: 0.75rem 1rem;
-            background: #f8f9fa;
-            border: 2px solid #e9ecef;
-            border-left: none;
-            border-top-right-radius: 8px;
-            border-bottom-right-radius: 8px;
-        }
-        .password-strength {
-            height: 5px;
-            margin-top: 0.5rem;
-            border-radius: 2.5px;
-            transition: all 0.3s ease;
-        }
-        .terms {
+
+        .terms-text {
             font-size: 0.9rem;
             color: #6c757d;
             margin-top: 1rem;
         }
+
+        .terms-text a {
+            color: #4a90e2;
+            text-decoration: none;
+            font-weight: 500;
+        }
+
+        .terms-text a:hover {
+            text-decoration: underline;
+        }
+
+        /* Help text styles */
+        .help-text {
+            font-size: 0.85rem;
+            color: #6c757d;
+            margin-top: 0.25rem;
+        }
+
+        .help-text.valid {
+            color: #28a745;
+        }
+
+        .help-text.invalid {
+            color: #dc3545;
+        }
+
+        .password-requirements {
+            margin-top: 1rem;
+            padding: 1rem;
+            background: #f8f9fa;
+            border-radius: 12px;
+        }
+
+        .requirement-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.85rem;
+            color: #6c757d;
+            margin-bottom: 0.5rem;
+        }
+
+        .requirement-item i {
+            font-size: 0.8rem;
+        }
+
+        .requirement-item.valid {
+            color: #28a745;
+        }
+
+        .requirement-item.valid i {
+            color: #28a745;
+        }
     </style>
 </head>
 <body>
-    <div class="register-container">
-        <!-- Register Header -->
-        <div class="register-header">
-            <div class="register-logo">
-                <i class="fas fa-user-plus"></i>
-            </div>
-            <h1 class="h3 mb-3">Create Account</h1>
-            <p class="text-muted">Join us to start your journaling journey</p>
-        </div>
-
-        <!-- Register Form -->
-        <div class="register-card">
-            <div class="card-body">
-                <?php if ($error): ?>
-                    <div class="alert alert-danger alert-dismissible fade show error-shake" role="alert">
-                        <i class="fas fa-exclamation-circle me-2"></i>
-                        <?php echo $error; ?>
-                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    <div class="split-container">
+        <!-- Showcase Section -->
+        <div class="showcase">
+            <div class="showcase-content">
+                <div class="showcase-brand">
+                    <div class="brand-logo">
+                        <i class="fas fa-book"></i>
                     </div>
-                <?php endif; ?>
+                    <h2 class="brand-name">Daily Journal</h2>
+                </div>
 
-                <?php if ($success): ?>
-                    <div class="alert alert-success alert-dismissible fade show" role="alert">
-                        <i class="fas fa-check-circle me-2"></i>
-                        <?php echo $success; ?>
-                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                    </div>
-                <?php endif; ?>
+                <h1>Start Your Digital Journaling Journey</h1>
+                <p>Join thousands of users who have discovered the joy of digital journaling. Create, organize, and preserve your memories in a beautiful and secure space.</p>
 
-                <form method="post" class="needs-validation" novalidate>
-                    <!-- Username Field -->
-                    <div class="mb-3">
-                        <label class="form-label">Username</label>
-                        <div class="input-group">
-                            <span class="input-group-text">
-                                <i class="fas fa-user"></i>
-                            </span>
-                            <input type="text" name="username" class="form-control" 
-                                   value="<?php echo isset($_POST['username']) ? htmlspecialchars($_POST['username']) : ''; ?>"
-                                   placeholder="Choose a username" required>
+                <ul class="feature-list">
+                    <li class="feature-item">
+                        <div class="feature-icon">
+                            <i class="fas fa-pencil-alt"></i>
                         </div>
-                        <small class="text-muted">Username must be unique</small>
-                    </div>
-
-                    <!-- Email Field -->
-                    <div class="mb-3">
-                        <label class="form-label">Email</label>
-                        <div class="input-group">
-                            <span class="input-group-text">
-                                <i class="fas fa-envelope"></i>
-                            </span>
-                            <input type="email" name="email" class="form-control" 
-                                   value="<?php echo isset($_POST['email']) ? htmlspecialchars($_POST['email']) : ''; ?>"
-                                   placeholder="Enter your email" required>
+                        Write in markdown or rich text
+                    </li>
+                    <li class="feature-item">
+                        <div class="feature-icon">
+                            <i class="fas fa-calendar-alt"></i>
                         </div>
-                    </div>
-
-                    <!-- Password Field -->
-                    <div class="mb-3">
-                        <label class="form-label">Password</label>
-                        <div class="input-group">
-                            <span class="input-group-text">
-                                <i class="fas fa-lock"></i>
-                            </span>
-                            <input type="password" name="password" class="form-control" 
-                                   id="password" placeholder="Create a password" required
-                                   onkeyup="checkPasswordStrength(this.value)">
-                            <span class="password-toggle" onclick="togglePassword('password', 'toggleIcon')">
-                                <i class="far fa-eye" id="toggleIcon"></i>
-                            </span>
+                        Calendar view for easy navigation
+                    </li>
+                    <li class="feature-item">
+                        <div class="feature-icon">
+                            <i class="fas fa-cloud"></i>
                         </div>
-                        <div class="password-strength" id="passwordStrength"></div>
-                        <small class="text-muted">Minimum 6 characters</small>
-                    </div>
-
-                    <!-- Confirm Password Field -->
-                    <div class="mb-3">
-                        <label class="form-label">Confirm Password</label>
-                        <div class="input-group">
-                            <span class="input-group-text">
-                                <i class="fas fa-lock"></i>
-                            </span>
-                            <input type="password" name="confirm_password" class="form-control" 
-                                   id="confirmPassword" placeholder="Confirm your password" required>
-                            <span class="password-toggle" onclick="togglePassword('confirmPassword', 'toggleIconConfirm')">
-                                <i class="far fa-eye" id="toggleIconConfirm"></i>
-                            </span>
+                        Secure cloud backup
+                    </li>
+                    <li class="feature-item">
+                        <div class="feature-icon">
+                            <i class="fas fa-palette"></i>
                         </div>
-                    </div>
-
-                    <!-- Terms and Conditions -->
-                    <div class="terms">
-                        <div class="form-check">
-                            <input type="checkbox" class="form-check-input" id="terms" required>
-                            <label class="form-check-label" for="terms">
-                                I agree to the <a href="#" data-bs-toggle="modal" data-bs-target="#termsModal">Terms & Conditions</a>
-                            </label>
-                        </div>
-                    </div>
-
-                    <!-- Submit Button -->
-                    <button type="submit" class="btn btn-primary btn-register">
-                        <i class="fas fa-user-plus me-2"></i>Create Account
-                    </button>
-                </form>
+                        Customizable themes and layouts
+                    </li>
+                </ul>
             </div>
         </div>
 
-        <!-- Login Link -->
-        <div class="login-link">
-            Already have an account? <a href="login.php">Login here</a>
+        <!-- Register Section -->
+        <div class="register-section">
+            <div class="register-header">
+                <h2 class="register-title">Create Account</h2>
+                <p class="register-subtitle">Start your journaling journey today</p>
+            </div>
+
+            <?php if ($error): ?>
+                <div class="alert alert-danger alert-dismissible fade show">
+                    <i class="fas fa-exclamation-circle me-2"></i>
+                    <?php echo $error; ?>
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            <?php endif; ?>
+
+            <?php if ($success): ?>
+                <div class="alert alert-success alert-dismissible fade show">
+                    <i class="fas fa-check-circle me-2"></i>
+                    <?php echo $success; ?>
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            <?php endif; ?>
+
+            <form method="post" class="needs-validation" novalidate>
+                <!-- Username Field -->
+                <div class="form-floating mb-3">
+                    <input type="text" class="form-control" id="username" name="username"
+                           placeholder="Choose a username" required
+                           value="<?php echo isset($_POST['username']) ? htmlspecialchars($_POST['username']) : ''; ?>"
+                           pattern="[a-zA-Z0-9_]{3,20}">
+                    <label for="username">Username</label>
+                    <div class="help-text">3-20 characters, letters, numbers, and underscores only</div>
+                </div>
+
+                <!-- Email Field -->
+                <div class="form-floating mb-3">
+                    <input type="email" class="form-control" id="email" name="email"
+                           placeholder="Enter your email" required
+                           value="<?php echo isset($_POST['email']) ? htmlspecialchars($_POST['email']) : ''; ?>">
+                    <label for="email">Email address</label>
+                </div>
+
+                <!-- Password Field -->
+                <div class="form-floating mb-3">
+                    <input type="password" class="form-control" id="password" name="password"
+                           placeholder="Create a password" required
+                           onkeyup="checkPasswordStrength(this.value)">
+                    <label for="password">Password</label>
+                    <span class="password-toggle" onclick="togglePassword('password', 'toggleIcon')">
+                        <i class="far fa-eye" id="toggleIcon"></i>
+                    </span>
+                    <div class="password-strength">
+                        <div class="password-strength-bar" id="passwordStrengthBar"></div>
+                    </div>
+                </div>
+
+                <!-- Confirm Password Field -->
+                <div class="form-floating mb-3">
+                    <input type="password" class="form-control" id="confirm_password" name="confirm_password"
+                           placeholder="Confirm your password" required>
+                    <label for="confirm_password">Confirm Password</label>
+                    <span class="password-toggle" onclick="togglePassword('confirm_password', 'toggleIconConfirm')">
+                        <i class="far fa-eye" id="toggleIconConfirm"></i>
+                    </span>
+                </div>
+
+                <!-- Password Requirements -->
+                <div class="password-requirements">
+                    <div class="requirement-item" id="req-length">
+                        <i class="fas fa-circle"></i>
+                        At least 6 characters long
+                    </div>
+                    <div class="requirement-item" id="req-uppercase">
+                        <i class="fas fa-circle"></i>
+                        Contains uppercase letter
+                    </div>
+                    <div class="requirement-item" id="req-lowercase">
+                        <i class="fas fa-circle"></i>
+                        Contains lowercase letter
+                    </div>
+                    <div class="requirement-item" id="req-number">
+                        <i class="fas fa-circle"></i>
+                        Contains number
+                    </div>
+                    <div class="requirement-item" id="req-special">
+                        <i class="fas fa-circle"></i>
+                        Contains special character
+                    </div>
+                </div>
+
+                <!-- Terms Checkbox -->
+                <div class="form-check mt-4">
+                    <input type="checkbox" class="form-check-input" id="terms" required>
+                    <label class="form-check-label" for="terms">
+                        I agree to the <a href="#" data-bs-toggle="modal" data-bs-target="#termsModal">Terms & Conditions</a>
+                    </label>
+                </div>
+
+                <!-- Submit Button -->
+                <button type="submit" class="btn btn-primary btn-register">
+                    <i class="fas fa-user-plus me-2"></i>Create Account
+                </button>
+
+                <!-- Login Link -->
+                <div class="login-link">
+                    Already have an account? <a href="login.php">Login here</a>
+                </div>
+            </form>
         </div>
     </div>
 
@@ -326,24 +538,42 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
         // Check password strength
         function checkPasswordStrength(password) {
-            const strengthBar = document.getElementById('passwordStrength');
-            let strength = 0;
-            
-            if (password.length >= 6) strength += 25;
-            if (password.match(/[A-Z]/)) strength += 25;
-            if (password.match(/[0-9]/)) strength += 25;
-            if (password.match(/[^A-Za-z0-9]/)) strength += 25;
+            const strengthBar = document.getElementById('passwordStrengthBar');
+            const requirements = {
+                length: password.length >= 6,
+                uppercase: /[A-Z]/.test(password),
+                lowercase: /[a-z]/.test(password),
+                number: /[0-9]/.test(password),
+                special: /[^A-Za-z0-9]/.test(password)
+            };
 
-            strengthBar.style.width = strength + '%';
+            // Update requirement indicators
+            Object.keys(requirements).forEach(req => {
+                const element = document.getElementById(`req-${req}`);
+                if (requirements[req]) {
+                    element.classList.add('valid');
+                    element.querySelector('i').classList.replace('fa-circle', 'fa-check-circle');
+                } else {
+                    element.classList.remove('valid');
+                    element.querySelector('i').classList.replace('fa-check-circle', 'fa-circle');
+                }
+            });
+
+            // Calculate strength percentage
+            const strength = Object.values(requirements).filter(Boolean).length * 20;
             
-            if (strength <= 25) {
+            // Update strength bar
+            strengthBar.style.width = `${strength}%`;
+            if (strength <= 20) {
                 strengthBar.style.backgroundColor = '#dc3545';
-            } else if (strength <= 50) {
+            } else if (strength <= 40) {
                 strengthBar.style.backgroundColor = '#ffc107';
-            } else if (strength <= 75) {
+            } else if (strength <= 60) {
                 strengthBar.style.backgroundColor = '#17a2b8';
-            } else {
+            } else if (strength <= 80) {
                 strengthBar.style.backgroundColor = '#28a745';
+            } else {
+                strengthBar.style.backgroundColor = '#198754';
             }
         }
 
@@ -361,6 +591,18 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 }, false)
             })
         })()
+
+        // Password match validation
+        document.getElementById('confirm_password').addEventListener('input', function() {
+            const password = document.getElementById('password').value;
+            const confirmPassword = this.value;
+            
+            if (password !== confirmPassword) {
+                this.setCustomValidity('Passwords do not match');
+            } else {
+                this.setCustomValidity('');
+            }
+        });
     </script>
 </body>
 </html>

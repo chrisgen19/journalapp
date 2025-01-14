@@ -104,4 +104,20 @@ class TagManager {
         $stmt->execute();
         return $stmt->get_result();
     }
+
+    // Add this method to your TagManager class
+    public function getPopularTags($user_id, $limit = 10) {
+        $stmt = $this->conn->prepare("
+            SELECT t.*, COUNT(jt.journal_id) as usage_count 
+            FROM tags t 
+            LEFT JOIN journal_tags jt ON t.id = jt.tag_id 
+            WHERE t.user_id = ? 
+            GROUP BY t.id 
+            ORDER BY usage_count DESC 
+            LIMIT ?
+        ");
+        $stmt->bind_param("ii", $user_id, $limit);
+        $stmt->execute();
+        return $stmt->get_result();
+    }
 }
