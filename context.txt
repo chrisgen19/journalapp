@@ -1,5 +1,25 @@
 // NEW CHAT FOR CLAUDE
 
+// THIS DIRECTORY STRUCTURE OF THIS PROJECT
+
+your_project/
+├── config.php
+├── auth.php
+├── journal.php
+├── login.php
+├── register.php
+├── journals.php
+├── journal_create.php
+├── journal_edit.php
+├── journal_view.php
+├── journal_delete.php
+├── calendar.php
+├── journals_by_date.php
+├── navbar.php
+├── delete_image.php
+└── uploads/
+    └── journals/
+
 // HERE's MY DATABASE SCHEMA
 
 -- Users table
@@ -32,3 +52,4394 @@ CREATE TABLE journal_images (
     uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (journal_id) REFERENCES journals(id) ON DELETE CASCADE
 );
+
+// auth.php
+
+// Start session in all pages
+session_start();
+
+// Functions for user authentication and management
+class Auth {
+    private $conn;
+
+    public function __construct($db) {
+        $this->conn = $db;
+    }
+
+    // Register new user
+    public function register($username, $password, $email) {
+        $hashed_password = password_hash($password, PASSWORD_DEFAULT);
+        
+        $stmt = $this->conn->prepare("INSERT INTO users (username, password, email) VALUES (?, ?, ?)");
+        $stmt->bind_param("sss", $username, $hashed_password, $email);
+        
+        if ($stmt->execute()) {
+            return true;
+        }
+        return false;
+    }
+
+    // Login user
+    public function login($username, $password) {
+        $stmt = $this->conn->prepare("SELECT id, username, password FROM users WHERE username = ?");
+        $stmt->bind_param("s", $username);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        
+        if ($result->num_rows == 1) {
+            $user = $result->fetch_assoc();
+            if (password_verify($password, $user['password'])) {
+                $_SESSION['user_id'] = $user['id'];
+                $_SESSION['username'] = $user['username'];
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Check if user is logged in
+    public function isLoggedIn() {
+        return isset($_SESSION['user_id']);
+    }
+
+    // Logout user
+    public function logout() {
+        session_unset();
+        session_destroy();
+        return true;
+    }
+
+    // Get user details
+    public function getUserDetails($user_id) {
+        $stmt = $this->conn->prepare("SELECT id, username, email, created_at FROM users WHERE id = ?");
+        $stmt->bind_param("i", $user_id);
+        $stmt->execute();
+        return $stmt->get_result()->fetch_assoc();
+    }
+
+    // Update user details
+    public function updateUser($user_id, $username, $email) {
+        $stmt = $this->conn->prepare("UPDATE users SET username = ?, email = ? WHERE id = ?");
+        $stmt->bind_param("ssi", $username, $email, $user_id);
+        return $stmt->execute();
+    }
+
+    // Update password
+    public function updatePassword($user_id, $new_password) {
+        $hashed_password = password_hash($new_password, PASSWORD_DEFAULT);
+        $stmt = $this->conn->prepare("UPDATE users SET password = ? WHERE id = ?");
+        $stmt->bind_param("si", $hashed_password, $user_id);
+        return $stmt->execute();
+    }
+}
+
+// config.php
+
+define('DB_SERVER', 'localhost');
+define('DB_USERNAME', 'root');
+define('DB_PASSWORD', 'zxczxc123');
+define('DB_NAME', 'journalphp');
+
+// Create database connection
+$conn = new mysqli(DB_SERVER, DB_USERNAME, DB_PASSWORD, DB_NAME);
+
+// Check connection
+if ($conn->connect_error) {
+    die("Connection failed: " . $conn->connect_error);
+}
+
+// calendar.php 
+
+<?php
+require_once 'config.php';
+require_once 'auth.php';
+require_once 'journal.php';
+
+$auth = new Auth($conn);
+$journal = new Journal($conn);
+
+if (!$auth->isLoggedIn()) {
+    header("Location: login.php");
+    exit();
+}
+
+// Get current month and year
+$month = isset($_GET['month']) ? intval($_GET['month']) : intval(date('m'));
+$year = isset($_GET['year']) ? intval($_GET['year']) : intval(date('Y'));
+
+// Get the first and last day of the month
+$firstDay = date('Y-m-01', strtotime("$year-$month-01"));
+$lastDay = date('Y-m-t', strtotime("$year-$month-01"));
+
+// Get all journal entries for the current month
+$query = "
+    SELECT j.*, 
+        (SELECT image_path FROM journal_images WHERE journal_id = j.id LIMIT 1) as thumbnail,
+        (SELECT COUNT(*) FROM journal_images WHERE journal_id = j.id) as image_count
+    FROM journals j 
+    WHERE user_id = ? 
+    AND entry_date BETWEEN ? AND ?
+    ORDER BY entry_date ASC
+";
+
+$stmt = $conn->prepare($query);
+$stmt->bind_param("iss", $_SESSION['user_id'], $firstDay, $lastDay);
+$stmt->execute();
+$result = $stmt->get_result();
+
+// Create an array of entries indexed by date
+$entries = [];
+while ($row = $result->fetch_assoc()) {
+    $date = date('Y-m-d', strtotime($row['entry_date']));
+    if (!isset($entries[$date])) {
+        $entries[$date] = [];
+    }
+    $entries[$date][] = $row;
+}
+?>
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Journal Calendar</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Merriweather:ital,wght@0,300;0,400;0,700;1,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        body {
+            background-color: #f8f9fa;
+            font-family: 'Inter', sans-serif;
+            color: #2c3e50;
+        }
+        .container-fluid {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            min-height: 100vh;
+            padding: 2rem 0;
+        }
+        .calendar-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+        .calendar-nav {
+            background: white;
+            border-radius: 15px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .month-nav {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        .month-title {
+            font-family: 'Merriweather', serif;
+            font-size: 1.5rem;
+            color: #2d3748;
+            margin: 0;
+            min-width: 200px;
+            text-align: center;
+        }
+        .month-nav .btn {
+            padding: 0.5rem 1rem;
+            border-radius: 50px;
+            border: none;
+            background: #f8f9fa;
+            color: #4a5568;
+            transition: all 0.3s;
+        }
+        .month-nav .btn:hover {
+            background: #edf2f7;
+            color: #2d3748;
+        }
+        .calendar-wrapper {
+            background: white;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+        }
+        .weekday-header {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            background: #f8f9fa;
+            border-bottom: 2px solid #e9ecef;
+        }
+        .weekday-cell {
+            padding: 1rem;
+            text-align: center;
+            font-weight: 600;
+            color: #4a5568;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+        }
+        .calendar-day {
+            min-height: 150px;
+            border: 1px solid #e9ecef;
+            padding: 0.5rem;
+            position: relative;
+            background: white;
+        }
+        .calendar-day.other-month {
+            background: #f8f9fa;
+        }
+        .calendar-day.today {
+            background: #f7fafc;
+        }
+        .day-number {
+            position: absolute;
+            top: 0.5rem;
+            right: 0.5rem;
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.875rem;
+            color: #4a5568;
+            border-radius: 50%;
+        }
+        .calendar-day.today .day-number {
+            background: #4a90e2;
+            color: white;
+        }
+        .calendar-day.other-month .day-number {
+            color: #a0aec0;
+        }
+        .entry-list {
+            margin-top: 2rem;
+        }
+        .entry-item {
+            display: flex;
+            align-items: start;
+            gap: 0.5rem;
+            padding: 0.5rem;
+            background: white;
+            border-radius: 8px;
+            margin-bottom: 0.5rem;
+            text-decoration: none;
+            color: inherit;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            transition: all 0.2s;
+        }
+        .entry-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .entry-thumbnail {
+            width: 40px;
+            height: 40px;
+            border-radius: 6px;
+            overflow: hidden;
+            background: #f8f9fa;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .entry-thumbnail img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .entry-thumbnail i {
+            color: #a0aec0;
+            font-size: 1.2rem;
+        }
+        .entry-content {
+            flex: 1;
+            min-width: 0;
+        }
+        .entry-title {
+            margin: 0;
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: #2d3748;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .entry-meta {
+            font-size: 0.75rem;
+            color: #718096;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .view-toggle {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            text-decoration: none;
+            color: #4a5568;
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            transition: all 0.2s;
+        }
+        .view-toggle:hover {
+            background: #f8f9fa;
+            color: #2d3748;
+        }
+        .btn-create {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: #4a90e2;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            box-shadow: 0 4px 10px rgba(74, 144, 226, 0.3);
+            transition: transform 0.3s;
+            text-decoration: none;
+            z-index: 1000;
+        }
+        .btn-create:hover {
+            transform: scale(1.1);
+            color: white;
+        }
+
+        .calendar-day {
+            min-height: 120px;
+            max-height: 120px;
+            border: 1px solid #e9ecef;
+            padding: 0.5rem;
+            position: relative;
+            overflow: hidden;
+        }
+        .entry-list {
+            margin-top: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+            max-height: 75px;
+            overflow: hidden;
+        }
+        .entry-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.25rem;
+            border-radius: 4px;
+            background: rgba(255, 255, 255, 0.8);
+            text-decoration: none;
+            color: inherit;
+            font-size: 0.8rem;
+            transition: all 0.2s;
+        }
+        .entry-item:hover {
+            background: white;
+        }
+        .entry-thumbnail {
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+        .entry-thumbnail img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .entry-title {
+            margin: 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            flex: 1;
+            max-width: calc(100% - 25px);
+        }
+        .more-entries {
+            font-size: 0.75rem;
+            color: #6c757d;
+            text-align: center;
+            padding: 0.25rem;
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 4px;
+            margin-top: 0.25rem;
+        }
+        .day-number {
+            position: absolute;
+            top: 0.25rem;
+            right: 0.25rem;
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.875rem;
+            color: #6c757d;
+            border-radius: 50%;
+        }
+        @media (max-width: 768px) {
+            .weekday-cell {
+                padding: 0.5rem;
+                font-size: 0.8rem;
+            }
+            .calendar-day {
+                min-height: 120px;
+            }
+            .month-title {
+                font-size: 1.2rem;
+                min-width: 150px;
+            }
+            .btn-create {
+                bottom: 1rem;
+                right: 1rem;
+            }
+            .entry-thumbnail {
+                width: 32px;
+                height: 32px;
+            }
+            .entry-title {
+                font-size: 0.8rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <?php include 'navbar.php'; ?>
+
+    <div class="container-fluid">
+        <div class="calendar-container">
+            <!-- Calendar Navigation -->
+            <div class="calendar-nav">
+                <div class="month-nav">
+                    <?php 
+                    $prevMonth = $month == 1 ? 12 : $month - 1;
+                    $prevYear = $month == 1 ? $year - 1 : $year;
+                    $nextMonth = $month == 12 ? 1 : $month + 1;
+                    $nextYear = $month == 12 ? $year + 1 : $year;
+                    ?>
+                    <a href="?month=<?php echo $prevMonth; ?>&year=<?php echo $prevYear; ?>" 
+                       class="btn btn-sm">
+                        <i class="fas fa-chevron-left"></i>
+                    </a>
+                    <h2 class="month-title">
+                        <?php echo date('F Y', strtotime("$year-$month-01")); ?>
+                    </h2>
+                    <a href="?month=<?php echo $nextMonth; ?>&year=<?php echo $nextYear; ?>" 
+                       class="btn btn-sm">
+                        <i class="fas fa-chevron-right"></i>
+                    </a>
+                </div>
+
+                <a href="journals.php" class="view-toggle">
+                    <i class="fas fa-th-list"></i>
+                    List View
+                </a>
+            </div>
+
+            <!-- Calendar -->
+            <div class="calendar-wrapper">
+                <div class="weekday-header">
+                    <?php
+                    $days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+                    foreach ($days as $day) {
+                        echo "<div class='weekday-cell'>" . substr($day, 0, 3) . "</div>";
+                    }
+                    ?>
+                </div>
+
+                <div class="calendar-grid">
+                    <?php
+                    $firstDayOfWeek = date('w', strtotime($firstDay));
+                    $lastDayOfPrevMonth = date('t', strtotime('-1 month', strtotime($firstDay)));
+                    $daysInMonth = date('t', strtotime($firstDay));
+                    
+                    // Previous month days
+                    for ($i = $firstDayOfWeek - 1; $i >= 0; $i--) {
+                        $day = $lastDayOfPrevMonth - $i;
+                        echo "<div class='calendar-day other-month'><div class='day-number'>$day</div></div>";
+                    }
+
+                    // Current month days
+                    for ($day = 1; $day <= $daysInMonth; $day++) {
+                        $currentDate = date('Y-m-d', strtotime("$year-$month-$day"));
+                        $isToday = $currentDate == date('Y-m-d');
+                        
+                        echo "<div class='calendar-day" . ($isToday ? " today" : "") . "'>";
+                        echo "<div class='day-number'>$day</div>";
+                        
+                        if (isset($entries[$currentDate])) {
+                            echo "<div class='entry-list'>";
+                            $entryCount = count($entries[$currentDate]);
+                            $displayLimit = 1; // Show only 2 entries maximum
+                            
+                            for ($i = 0; $i < min($displayLimit, $entryCount); $i++) {
+                                $entry = $entries[$currentDate][$i];
+                                echo "<a href='journal_view.php?id={$entry['id']}' class='entry-item'>";
+                                if ($entry['thumbnail']) {
+                                    echo "<div class='entry-thumbnail'>";
+                                    echo "<img src='" . htmlspecialchars($entry['thumbnail']) . "' alt='Entry thumbnail'>";
+                                    echo "</div>";
+                                } else {
+                                    echo "<div class='entry-thumbnail'>";
+                                    echo "<i class='fas fa-file-alt'></i>";
+                                    echo "</div>";
+                                }
+                                echo "<div class='entry-title'>" . htmlspecialchars($entry['title']) . "</div>";
+                                echo "</a>";
+                            }
+                            
+                            if ($entryCount > $displayLimit) {
+                                $remainingCount = $entryCount - $displayLimit;
+                                echo "<a href='journals_by_date.php?date=" . $currentDate . "' class='more-entries'>";
+                                echo "<i class='fas fa-plus-circle me-1'></i>";
+                                echo "$remainingCount more";
+                                echo "</a>";
+                            }
+                            
+                            echo "</div>";
+                        }
+                        echo "</div>";
+                    }
+
+                    // Next month days
+                    $daysShown = $firstDayOfWeek + $daysInMonth;
+                    $remainingDays = ceil($daysShown / 7) * 7 - $daysShown;
+                    
+                    for ($i = 1; $i <= $remainingDays; $i++) {
+                        echo "<div class='calendar-day other-month'><div class='day-number'>$i</div></div>";
+                    }
+                    ?>
+                </div>
+            </div>
+
+            <!-- Floating Create Button -->
+            <a href="journal_create.php" class="btn-create" title="Create new entry">
+                <i class="fas fa-plus"></i>
+            </a>
+        </div>
+    </div><!-- Scripts -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
+
+// delete_image.php 
+
+<?php
+// delete_image.php
+require_once 'config.php';
+require_once 'auth.php';
+require_once 'journal.php';
+
+$auth = new Auth($conn);
+
+// Check if user is logged in
+if (!$auth->isLoggedIn()) {
+    echo json_encode(['success' => false, 'message' => 'Not authorized']);
+    exit();
+}
+
+// Get JSON data
+$data = json_decode(file_get_contents('php://input'), true);
+$journalId = $data['journal_id'] ?? 0;
+$imagePath = $data['image_path'] ?? '';
+
+try {
+    // Verify that the user owns this journal
+    $stmt = $conn->prepare("SELECT user_id FROM journals WHERE id = ?");
+    $stmt->bind_param("i", $journalId);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $journal = $result->fetch_assoc();
+
+    if (!$journal || $journal['user_id'] != $_SESSION['user_id']) {
+        echo json_encode(['success' => false, 'message' => 'Not authorized']);
+        exit();
+    }
+
+    // Delete the image record from database
+    $stmt = $conn->prepare("DELETE FROM journal_images WHERE journal_id = ? AND image_path = ?");
+    $stmt->bind_param("is", $journalId, $imagePath);
+    
+    if ($stmt->execute()) {
+        // Delete the physical file
+        if (file_exists($imagePath)) {
+            unlink($imagePath);
+        }
+        echo json_encode(['success' => true]);
+    } else {
+        echo json_encode(['success' => false, 'message' => 'Database error']);
+    }
+
+} catch (Exception $e) {
+    error_log("Image deletion error: " . $e->getMessage());
+    echo json_encode(['success' => false, 'message' => 'Server error']);
+}
+?>
+
+// index.php 
+
+<?php
+require_once 'config.php';
+require_once 'auth.php';
+require_once 'journal.php';
+
+$auth = new Auth($conn);
+$journal = new Journal($conn);
+
+if (!$auth->isLoggedIn()) {
+    header("Location: login.php");
+    exit();
+}
+
+// Pagination settings
+$entries_per_page = 30;
+$page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+$page = max(1, $page); // Ensure page is at least 1
+$offset = ($page - 1) * $entries_per_page;
+
+// Handle search
+$search = isset($_GET['search']) ? trim($_GET['search']) : '';
+
+// Get total number of entries for pagination
+$count_query = "SELECT COUNT(*) as total FROM journals WHERE user_id = ?";
+$count_params = [$_SESSION['user_id']];
+$count_types = "i";
+
+if (!empty($search)) {
+    $count_query .= " AND (title LIKE ? OR content LIKE ?)";
+    $count_params[] = "%$search%";
+    $count_params[] = "%$search%";
+    $count_types .= "ss";
+}
+
+$stmt = $conn->prepare($count_query);
+$stmt->bind_param($count_types, ...$count_params);
+$stmt->execute();
+$total_entries = $stmt->get_result()->fetch_assoc()['total'];
+$total_pages = ceil($total_entries / $entries_per_page);
+
+// Ensure current page doesn't exceed total pages
+$page = min($page, max(1, $total_pages));
+
+// Get entries for current page
+$query = "SELECT j.*, 
+        (SELECT image_path FROM journal_images WHERE journal_id = j.id LIMIT 1) as thumbnail,
+        (SELECT COUNT(*) FROM journal_images WHERE journal_id = j.id) as image_count
+        FROM journals j 
+        WHERE j.user_id = ?";
+
+$params = array($_SESSION['user_id']);
+$types = "i";
+
+if (!empty($search)) {
+    $query .= " AND (j.title LIKE ? OR j.content LIKE ?)";
+    $searchParam = "%$search%";
+    $params[] = $searchParam;
+    $params[] = $searchParam;
+    $types .= "ss";
+}
+
+$query .= " ORDER BY j.entry_date DESC, j.id DESC LIMIT ? OFFSET ?";
+$params[] = $entries_per_page;
+$params[] = $offset;
+$types .= "ii";
+
+$stmt = $conn->prepare($query);
+$stmt->bind_param($types, ...$params);
+$stmt->execute();
+$entries = $stmt->get_result();
+?>
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>My Journals</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Merriweather:ital,wght@0,300;0,400;0,700;1,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <!-- Previous styles remain the same -->
+    <style>
+
+body {
+            background-color: #f8f9fa;
+            font-family: 'Inter', sans-serif;
+            color: #2c3e50;
+        }
+        .container-fluid {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            min-height: 100vh;
+            padding: 2rem 0;
+        }
+        .journal-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+        .page-header {
+            margin-bottom: 2rem;
+        }
+        .page-title {
+            font-family: 'Merriweather', serif;
+            font-size: 2rem;
+            color: #1a202c;
+            margin-bottom: 0.5rem;
+        }
+        .search-bar {
+            max-width: 600px;
+            margin: 2rem auto;
+        }
+        .search-input {
+            border: none;
+            border-radius: 50px;
+            padding: 1rem 1.5rem;
+            font-size: 1.1rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            transition: all 0.3s ease;
+        }
+        .search-input:focus {
+            box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+        }
+        .search-btn {
+            border-radius: 50px;
+            padding: 0.7rem 1.5rem;
+        }
+        .journal-card {
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            height: 100%;
+            overflow: hidden;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+        }
+        .journal-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 15px rgba(0,0,0,0.1);
+        }
+        .journal-thumbnail {
+            height: 200px;
+            background-color: #f8f9fa;
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-bottom: 1px solid #e9ecef;
+        }
+        .journal-thumbnail img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transition: transform 0.3s ease;
+        }
+        .journal-card:hover .journal-thumbnail img {
+            transform: scale(1.05);
+        }
+        .no-image-icon {
+            color: #cbd5e0;
+            font-size: 3rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .no-image-icon span {
+            font-size: 0.9rem;
+            color: #a0aec0;
+        }
+        .journal-content {
+            padding: 1.5rem;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+        .journal-title {
+            font-family: 'Merriweather', serif;
+            font-size: 1.25rem;
+            color: #2d3748;
+            margin-bottom: 0.5rem;
+            line-height: 1.4;
+        }
+        .journal-title a {
+            text-decoration: none;
+            color: inherit;
+        }
+        .journal-title a:hover {
+            color: #4a90e2;
+        }
+        .journal-date {
+            font-size: 0.9rem;
+            color: #6c757d;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .journal-preview {
+            font-family: 'Inter', sans-serif;
+            color: #4a5568;
+            line-height: 1.7;
+            flex: 1;
+            display: -webkit-box;
+            -webkit-line-clamp: 4;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            margin-bottom: 1rem;
+        }
+        .journal-footer {
+            padding: 1rem 1.5rem;
+            background: #f8f9fa;
+            border-top: 1px solid #e9ecef;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .tag {
+            font-size: 0.8rem;
+            padding: 0.25rem 0.75rem;
+            border-radius: 50px;
+            background: #e9ecef;
+            color: #495057;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+        .btn-create {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            width: 60px;
+            height: 60px;
+            border-radius: 30px;
+            background: #4a90e2;
+            color: white;
+            box-shadow: 0 4px 10px rgba(74, 144, 226, 0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            transition: transform 0.3s ease;
+            z-index: 1000;
+            text-decoration: none;
+        }
+        .btn-create:hover {
+            transform: scale(1.1);
+            color: white;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 4rem 2rem;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        }
+        .empty-icon {
+            font-size: 4rem;
+            color: #cbd5e0;
+            margin-bottom: 1.5rem;
+        }
+        .btn-group .btn {
+            padding: 0.4rem 0.8rem;
+            font-size: 0.9rem;
+        }
+        @media (max-width: 768px) {
+            .journal-thumbnail {
+                height: 150px;
+            }
+            .btn-create {
+                bottom: 1rem;
+                right: 1rem;
+            }
+            .journal-content {
+                padding: 1rem;
+            }
+            .journal-footer {
+                padding: 0.75rem 1rem;
+            }
+        }
+
+        .pagination-container {
+            margin-top: 2rem;
+            padding: 1rem;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        }
+        .pagination {
+            margin: 0;
+            gap: 0.5rem;
+        }
+        .page-link {
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            color: #4a5568;
+            transition: all 0.3s ease;
+        }
+        .page-link:hover {
+            background: #edf2f7;
+            color: #2d3748;
+        }
+        .page-item.active .page-link {
+            background: #4a90e2;
+            color: white;
+        }
+        .page-info {
+            color: #6c757d;
+            font-size: 0.9rem;
+            text-align: center;
+            margin-top: 0.5rem;
+        }
+    </style>
+</head>
+<body>
+    <?php include 'navbar.php'; ?>
+
+    <div class="container-fluid">
+        <div class="journal-container">
+            <!-- Page Header -->
+            <div class="page-header text-center">
+                <h1 class="page-title">My Journal Entries</h1>
+                <p class="text-muted">Your personal space for thoughts and memories</p>
+            </div>
+
+            <!-- Search Bar -->
+            <div class="search-bar">
+                <form method="GET" action="" class="input-group">
+                    <input type="text" name="search" class="form-control search-input" 
+                           placeholder="Search your journals..." 
+                           value="<?php echo htmlspecialchars($search); ?>">
+                    <button type="submit" class="btn btn-primary search-btn">
+                        <i class="fas fa-search"></i>
+                    </button>
+                </form>
+            </div>
+
+            <!-- Search Results Info -->
+            <?php if (!empty($search)): ?>
+                <div class="text-center mb-4">
+                    <p class="text-muted">
+                        <?php echo "Found $total_entries " . ($total_entries == 1 ? "entry" : "entries") . " for \"" . htmlspecialchars($search) . "\""; ?>
+                        <a href="journals.php" class="ms-2"><i class="fas fa-times"></i> Clear search</a>
+                    </p>
+                </div>
+            <?php endif; ?>
+
+            <!-- Journal Entries Grid -->
+            <?php if ($entries->num_rows > 0): ?>
+                <div class="row g-4">
+                    <?php while ($entry = $entries->fetch_assoc()): 
+                        $preview = strip_tags(substr($entry['content'], 0, 150));
+                    ?>
+                        <!-- Journal card content remains the same -->
+                        <div class="col-12 col-md-6 col-lg-4">
+                            <div class="journal-card">
+                                <div class="journal-thumbnail">
+                                    <?php if ($entry['thumbnail']): ?>
+                                        <img src="<?php echo htmlspecialchars($entry['thumbnail']); ?>" alt="Journal thumbnail">
+                                    <?php else: ?>
+                                        <div class="no-image-icon">
+                                            <i class="fas fa-file-alt"></i>
+                                            <span>Text Only</span>
+                                        </div>
+                                    <?php endif; ?>
+                                </div>
+
+                                <div class="journal-content">
+                                    <h2 class="journal-title">
+                                        <a href="journal_view.php?id=<?php echo $entry['id']; ?>">
+                                            <?php echo htmlspecialchars($entry['title']); ?>
+                                        </a>
+                                    </h2>
+                                    
+                                    <div class="journal-date">
+                                        <i class="far fa-calendar-alt"></i>
+                                        <?php echo date('F j, Y', strtotime($entry['entry_date'])); ?>
+                                    </div>
+
+                                    <div class="journal-preview">
+                                        <?php echo htmlspecialchars($preview) . '...'; ?>
+                                    </div>
+                                </div>
+
+                                <div class="journal-footer">
+                                    <span class="tag">
+                                        <i class="fas fa-images"></i>
+                                        <?php echo $entry['image_count']; ?> images
+                                    </span>
+                                    
+                                    <div class="btn-group">
+                                        <a href="journal_view.php?id=<?php echo $entry['id']; ?>" class="btn btn-sm btn-outline-secondary">
+                                           <i class="far fa-eye me-1"></i>
+                                        </a>
+                                        <a href="journal_edit.php?id=<?php echo $entry['id']; ?>" 
+                                           class="btn btn-sm btn-outline-secondary">
+                                            <i class="fas fa-edit"></i>
+                                        </a>
+                                        <button onclick="deleteEntry(<?php echo $entry['id']; ?>)" 
+                                                class="btn btn-sm btn-outline-danger">
+                                            <i class="fas fa-trash-alt"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    <?php endwhile; ?>
+                </div>
+
+                <!-- Pagination -->
+                <div class="pagination-container">
+                    <nav aria-label="Journal navigation">
+                        <ul class="pagination justify-content-center">
+                            <!-- First Page -->
+                            <li class="page-item <?php echo ($page <= 1) ? 'disabled' : ''; ?>">
+                                <a class="page-link" href="?page=1<?php echo !empty($search) ? '&search=' . urlencode($search) : ''; ?>" aria-label="First">
+                                    <i class="fas fa-angle-double-left"></i>
+                                </a>
+                            </li>
+                            
+                            <!-- Previous Page -->
+                            <li class="page-item <?php echo ($page <= 1) ? 'disabled' : ''; ?>">
+                                <a class="page-link" href="?page=<?php echo $page - 1; ?><?php echo !empty($search) ? '&search=' . urlencode($search) : ''; ?>" aria-label="Previous">
+                                    <i class="fas fa-angle-left"></i>
+                                </a>
+                            </li>
+
+                            <?php
+                            $start_page = max(1, $page - 2);
+                            $end_page = min($total_pages, $start_page + 4);
+                            $start_page = max(1, min($start_page, $end_page - 4));
+
+                            for ($i = $start_page; $i <= $end_page; $i++):
+                            ?>
+                                <li class="page-item <?php echo ($page == $i) ? 'active' : ''; ?>">
+                                    <a class="page-link" href="?page=<?php echo $i; ?><?php echo !empty($search) ? '&search=' . urlencode($search) : ''; ?>">
+                                        <?php echo $i; ?>
+                                    </a>
+                                </li>
+                            <?php endfor; ?>
+
+                            <!-- Next Page -->
+                            <li class="page-item <?php echo ($page >= $total_pages) ? 'disabled' : ''; ?>">
+                                <a class="page-link" href="?page=<?php echo $page + 1; ?><?php echo !empty($search) ? '&search=' . urlencode($search) : ''; ?>" aria-label="Next">
+                                    <i class="fas fa-angle-right"></i>
+                                </a>
+                            </li>
+
+                            <!-- Last Page -->
+                            <li class="page-item <?php echo ($page >= $total_pages) ? 'disabled' : ''; ?>">
+                                <a class="page-link" href="?page=<?php echo $total_pages; ?><?php echo !empty($search) ? '&search=' . urlencode($search) : ''; ?>" aria-label="Last">
+                                    <i class="fas fa-angle-double-right"></i>
+                                </a>
+                            </li>
+                        </ul>
+                    </nav>
+                    <div class="page-info">
+                        Showing <?php echo ($offset + 1); ?> to <?php echo min($offset + $entries_per_page, $total_entries); ?> of <?php echo $total_entries; ?> entries
+                    </div>
+                </div>
+
+            <?php else: ?>
+                <div class="empty-state">
+                    <i class="fas fa-book-open empty-icon"></i>
+                    <?php if (!empty($search)): ?>
+                        <h3>No entries found</h3>
+                        <p class="text-muted">Try searching with different keywords</p>
+                    <?php else: ?>
+                        <h3>No journal entries yet</h3>
+                        <p class="text-muted">Start writing your first journal entry today!</p>
+                    <?php endif; ?>
+                    <a href="journal_create.php" class="btn btn-primary mt-3">
+                        <i class="fas fa-plus me-2"></i>Create New Entry
+                    </a>
+                </div>
+            <?php endif; ?>
+
+            <!-- Floating Create Button -->
+            <a href="journal_create.php" class="btn-create" title="Create new entry">
+                <i class="fas fa-plus"></i>
+            </a>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        function deleteEntry(id) {
+            if (confirm('Are you sure you want to delete this entry?')) {
+                window.location.href = 'journal_delete.php?id=' + id;
+            }
+        }
+    </script>
+</body>
+</html>
+
+// journal_create.php 
+
+<?php
+// journal_create.php
+require_once 'config.php';
+require_once 'auth.php';
+require_once 'journal.php';
+
+$auth = new Auth($conn);
+$journal = new Journal($conn);
+
+// Check if user is logged in
+if (!$auth->isLoggedIn()) {
+    header("Location: login.php");
+    exit();
+}
+
+// Handle form submission
+if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+    $title = trim($_POST['title']);
+    $content = trim($_POST['content']);
+    $entry_date = $_POST['entry_date'];
+    $images = isset($_FILES['images']) ? $_FILES['images'] : [];
+
+    // Basic validation
+    $errors = [];
+    if (empty($title)) {
+        $errors[] = "Title is required";
+    }
+    if (empty($content)) {
+        $errors[] = "Content is required";
+    }
+    if (empty($entry_date)) {
+        $errors[] = "Date is required";
+    }
+
+    // If no errors, create the journal entry
+    if (empty($errors)) {
+        if ($journal->create($_SESSION['user_id'], $title, $content, $entry_date, $images)) {
+            $_SESSION['message'] = "Journal entry created successfully!";
+            $_SESSION['message_type'] = "success";
+            header("Location: journals.php");
+            exit();
+        } else {
+            $errors[] = "Failed to create journal entry";
+        }
+    }
+}
+?>
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Create New Journal Entry</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css" rel="stylesheet">
+    <!-- EasyMDE -->
+    <link href="https://cdn.jsdelivr.net/npm/easymde/dist/easymde.min.css" rel="stylesheet">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Merriweather:ital,wght@0,300;0,400;0,700;1,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        body {
+            background-color: #f8f9fa;
+            font-family: 'Inter', sans-serif;
+            line-height: 1.6;
+            color: #2c3e50;
+        }
+        .container-fluid {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            min-height: 100vh;
+            padding: 2rem 0;
+        }
+        .journal-container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+        .btn-back {
+            text-decoration: none;
+            color: #6c757d;
+            display: inline-flex;
+            align-items: center;
+            font-size: 0.95rem;
+            margin-bottom: 1.5rem;
+            transition: color 0.2s;
+        }
+        .btn-back:hover {
+            color: #343a40;
+        }
+        .journal-card {
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+            padding: 2.5rem;
+            margin-bottom: 2rem;
+        }
+        .page-title {
+            font-family: 'Merriweather', serif;
+            font-size: 2rem;
+            color: #1a202c;
+            margin-bottom: 0.5rem;
+        }
+        .page-subtitle {
+            color: #6c757d;
+            margin-bottom: 2rem;
+        }
+        .form-label {
+            font-weight: 500;
+            color: #2d3748;
+            margin-bottom: 0.5rem;
+        }
+        .form-control {
+            border: 2px solid #e9ecef;
+            padding: 0.75rem 1rem;
+            font-size: 1rem;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+        }
+        .form-control:focus {
+            border-color: #4a90e2;
+            box-shadow: 0 0 0 0.2rem rgba(74, 144, 226, 0.15);
+        }
+        .editor-toolbar {
+            border-color: #e9ecef;
+            background-color: #f8f9fa;
+        }
+        .CodeMirror {
+            border-color: #e9ecef;
+            border-radius: 8px;
+            font-family: 'Merriweather', serif;
+            font-size: 1.1rem;
+            line-height: 1.8;
+            padding: 1rem;
+        }
+        .CodeMirror-scroll {
+            min-height: 400px;
+        }
+        .preview-container {
+            background: #fff;
+            border: 2px dashed #e9ecef;
+            border-radius: 8px;
+            padding: 1rem;
+            margin-top: 0.5rem;
+            min-height: 120px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .preview-image {
+            width: 100px;
+            height: 100px;
+            object-fit: cover;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            transition: transform 0.2s;
+        }
+        .preview-image:hover {
+            transform: scale(1.05);
+        }
+        .empty-preview {
+            width: 100%;
+            text-align: center;
+            color: #6c757d;
+            padding: 1.5rem;
+        }
+        .action-buttons {
+            display: flex;
+            gap: 1rem;
+            margin-top: 2rem;
+        }
+        .action-buttons .btn {
+            padding: 0.75rem 1.5rem;
+            font-weight: 500;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .btn-primary {
+            background-color: #4a90e2;
+            border-color: #4a90e2;
+        }
+        .btn-primary:hover {
+            background-color: #357abd;
+            border-color: #357abd;
+        }
+        .help-text {
+            font-size: 0.9rem;
+            color: #6c757d;
+            margin-top: 0.5rem;
+        }
+        @media (max-width: 768px) {
+            .journal-card {
+                padding: 1.5rem;
+            }
+            .action-buttons {
+                flex-direction: column;
+            }
+            .action-buttons .btn {
+                width: 100%;
+                justify-content: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <?php include 'navbar.php'; ?>
+
+    <div class="container-fluid">
+        <div class="journal-container">
+            <a href="journals.php" class="btn-back">
+                <i class="fas fa-arrow-left me-2"></i>
+                Back to Journals
+            </a>
+
+            <div class="journal-card">
+                <h1 class="page-title">Create New Entry</h1>
+                <p class="page-subtitle">Write down your thoughts and memories</p>
+
+                <form method="post" enctype="multipart/form-data">
+                    <div class="mb-3">
+                        <label for="title" class="form-label">
+                            <i class="fas fa-heading me-2"></i>Entry Title
+                        </label>
+                        <input type="text" class="form-control" id="title" name="title" 
+                                value="<?php echo isset($_POST['title']) ? htmlspecialchars($_POST['title']) : ''; ?>" 
+                                required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="entry_date" class="form-label">
+                            <i class="fas fa-calendar me-2"></i>Date
+                        </label>
+                        <input type="date" class="form-control" id="entry_date" name="entry_date" 
+                                value="<?php echo isset($_POST['entry_date']) ? $_POST['entry_date'] : date('Y-m-d'); ?>" 
+                                required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="content" class="form-label">
+                            <i class="fas fa-pen-fancy me-2"></i>Your Entry
+                        </label>
+                        <textarea id="content" name="content" class="form-control" rows="10"><?php 
+                            echo isset($_POST['content']) ? htmlspecialchars($_POST['content']) : ''; 
+                        ?></textarea>
+                        <small class="text-muted">Supports Markdown formatting</small>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="images" class="form-label">
+                            <i class="fas fa-images me-2"></i>Add Images
+                        </label>
+                        <input type="file" class="form-control" id="images" name="images[]" 
+                                accept="image/*" multiple onchange="previewImages(event)">
+                        <div id="preview-images" class="mt-2"></div>
+                    </div>
+
+                    <div class="d-flex justify-content-between">
+                        <button type="submit" class="btn btn-primary">Create Journal Entry</button>
+                        <a href="journals.php" class="btn btn-link">Cancel</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/easymde/dist/easymde.min.js"></script>
+    <script>
+        // Initialize EasyMDE
+        const easyMDE = new EasyMDE({
+            element: document.getElementById('content'),
+            spellChecker: false,
+            autosave: {
+                enabled: true,
+                unique_id: "journal_create"
+            },
+            placeholder: "Start writing your journal entry...",
+            toolbar: [
+                "bold", "italic", "heading", "|",
+                "quote", "unordered-list", "ordered-list", "|",
+                "link", "image", "|",
+                "preview", "side-by-side", "fullscreen", "|",
+                "guide"
+            ],
+            status: ["autosave", "words", "lines"],
+            minHeight: "400px"
+        });
+
+        // Image preview function
+        function previewImages(event) {
+            const container = document.getElementById('preview-container');
+            container.innerHTML = '';
+            
+            const files = event.target.files;
+            if (files.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-preview">
+                        <i class="fas fa-cloud-upload-alt fa-2x mb-2"></i>
+                        <p class="mb-0">Selected images will appear here</p>
+                    </div>`;
+                return;
+            }
+            
+            for (let file of files) {
+                if (file.type.startsWith('image/')) {
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        const img = document.createElement('img');
+                        img.src = e.target.result;
+                        img.className = 'preview-image';
+                        img.title = file.name;
+                        container.appendChild(img);
+                    }
+                    reader.readAsDataURL(file);
+                }
+            }
+        }
+    </script>
+</body>
+</html>
+
+// journal_delete.php
+
+<?php
+// journal_delete.php
+require_once 'config.php';
+require_once 'auth.php';
+require_once 'journal.php';
+
+$auth = new Auth($conn);
+$journal = new Journal($conn);
+
+if (!$auth->isLoggedIn()) {
+    header("Location: login.php");
+    exit();
+}
+
+$id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
+
+if ($id > 0) {
+    if ($journal->delete($id, $_SESSION['user_id'])) {
+        $_SESSION['message'] = "Journal entry was successfully deleted.";
+        $_SESSION['message_type'] = "success";
+    } else {
+        $_SESSION['message'] = "Failed to delete journal entry.";
+        $_SESSION['message_type'] = "danger";
+    }
+}
+
+// Redirect back to the page they came from, or journals.php by default
+$redirect_to = isset($_SERVER['HTTP_REFERER']) ? $_SERVER['HTTP_REFERER'] : 'journals.php';
+header("Location: " . $redirect_to);
+exit();
+?>
+
+// journal_edit.php 
+
+<?php
+require_once 'config.php';
+require_once 'auth.php';
+require_once 'journal.php';
+
+$auth = new Auth($conn);
+$journal = new Journal($conn);
+
+if (!$auth->isLoggedIn()) {
+    header("Location: login.php");
+    exit();
+}
+
+$id = $_GET['id'] ?? 0;
+$entry = $journal->read($id, $_SESSION['user_id']);
+
+if (!$entry) {
+    header("Location: journals.php");
+    exit();
+}
+
+if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+    $title = trim($_POST['title']);
+    $content = trim($_POST['content']);
+    $entry_date = $_POST['entry_date'];
+    $images = isset($_FILES['images']) ? $_FILES['images'] : [];
+    
+    if ($journal->update($id, $_SESSION['user_id'], $title, $content, $entry_date, $images)) {
+        header("Location: journal_view.php?id=" . $id);
+        exit();
+    } else {
+        $error = "Failed to update journal entry.";
+    }
+}
+?>
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Edit Journal Entry</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css" rel="stylesheet">
+    <!-- EasyMDE -->
+    <link href="https://cdn.jsdelivr.net/npm/easymde/dist/easymde.min.css" rel="stylesheet">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Merriweather:ital,wght@0,300;0,400;0,700;1,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        body {
+            background-color: #f8f9fa;
+            font-family: 'Inter', sans-serif;
+            line-height: 1.6;
+            color: #2c3e50;
+        }
+        .container-fluid {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            min-height: 100vh;
+            padding: 2rem 0;
+        }
+        .journal-container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+        .btn-back {
+            text-decoration: none;
+            color: #6c757d;
+            display: inline-flex;
+            align-items: center;
+            font-size: 0.95rem;
+            margin-bottom: 1.5rem;
+            transition: color 0.2s;
+        }
+        .btn-back:hover {
+            color: #343a40;
+        }
+        .journal-card {
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+            padding: 2.5rem;
+            margin-bottom: 2rem;
+        }
+        .page-title {
+            font-family: 'Merriweather', serif;
+            font-size: 2rem;
+            color: #1a202c;
+            margin-bottom: 0.5rem;
+        }
+        .page-subtitle {
+            color: #6c757d;
+            margin-bottom: 2rem;
+        }
+        .form-label {
+            font-weight: 500;
+            color: #2d3748;
+            margin-bottom: 0.5rem;
+        }
+        .form-control {
+            border: 2px solid #e9ecef;
+            padding: 0.75rem 1rem;
+            font-size: 1rem;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+        }
+        .form-control:focus {
+            border-color: #4a90e2;
+            box-shadow: 0 0 0 0.2rem rgba(74, 144, 226, 0.15);
+        }
+        .editor-toolbar {
+            border-color: #e9ecef;
+            background-color: #f8f9fa;
+        }
+        .CodeMirror {
+            border-color: #e9ecef;
+            border-radius: 8px;
+            font-family: 'Merriweather', serif;
+            font-size: 1.1rem;
+            line-height: 1.8;
+            padding: 1rem;
+        }
+        .CodeMirror-scroll {
+            min-height: 400px;
+        }
+        .preview-container {
+            background: #fff;
+            border: 2px dashed #e9ecef;
+            border-radius: 8px;
+            padding: 1rem;
+            margin-top: 0.5rem;
+            min-height: 120px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .preview-image {
+            width: 100px;
+            height: 100px;
+            object-fit: cover;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            transition: transform 0.2s;
+        }
+        .preview-image:hover {
+            transform: scale(1.05);
+        }
+        .current-images {
+            margin-bottom: 2rem;
+            padding: 1rem;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+        .current-images-title {
+            font-size: 1rem;
+            color: #4a5568;
+            margin-bottom: 1rem;
+            font-weight: 500;
+        }
+        .image-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+            gap: 1rem;
+        }
+        .image-wrapper {
+            position: relative;
+        }
+        .image-remove {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            width: 24px;
+            height: 24px;
+            background: #dc3545;
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 12px;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        .image-wrapper:hover .image-remove {
+            opacity: 1;
+        }
+        .action-buttons {
+            display: flex;
+            gap: 1rem;
+            margin-top: 2rem;
+        }
+        .action-buttons .btn {
+            padding: 0.75rem 1.5rem;
+            font-weight: 500;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .help-text {
+            font-size: 0.9rem;
+            color: #6c757d;
+            margin-top: 0.5rem;
+        }
+
+        .current-images {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+            gap: 1rem;
+            padding: 1rem;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+        .image-wrapper {
+            position: relative;
+        }
+        .preview-image {
+            width: 100px;
+            height: 100px;
+            object-fit: cover;
+            border-radius: 8px;
+            transition: transform 0.2s;
+        }
+        .image-remove {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            width: 24px;
+            height: 24px;
+            background: #dc3545;
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        .image-wrapper:hover .image-remove {
+            opacity: 1;
+        }
+        .image-wrapper:hover .preview-image {
+            transform: scale(1.05);
+        }
+
+        @media (max-width: 768px) {
+            .journal-card {
+                padding: 1.5rem;
+            }
+            .action-buttons {
+                flex-direction: column;
+            }
+            .action-buttons .btn {
+                width: 100%;
+                justify-content: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <?php include 'navbar.php'; ?>
+
+    <div class="container-fluid">
+        <div class="journal-container">
+            <a href="journal_view.php?id=<?php echo $id; ?>" class="btn-back">
+                <i class="fas fa-arrow-left me-2"></i>
+                Back to Entry
+            </a>
+
+            <div class="journal-card">
+                <h1 class="page-title">Edit Journal Entry</h1>
+                <p class="page-subtitle">Update your thoughts and memories</p>
+
+                <form method="post" enctype="multipart/form-data">
+                    <!-- Title Field -->
+                    <div class="mb-4">
+                        <label for="title" class="form-label">
+                            <i class="fas fa-heading me-2"></i>Entry Title
+                        </label>
+                        <input type="text" class="form-control form-control-lg" id="title" 
+                               name="title" value="<?php echo htmlspecialchars($entry['title']); ?>" required>
+                    </div>
+
+                    <!-- Date Field -->
+                    <div class="mb-4">
+                        <label for="entry_date" class="form-label">
+                            <i class="fas fa-calendar me-2"></i>Date
+                        </label>
+                        <input type="date" class="form-control" id="entry_date" 
+                               name="entry_date" value="<?php echo $entry['entry_date']; ?>" required>
+                    </div>
+
+                    <!-- Content Field -->
+                    <div class="mb-4">
+                        <label for="content" class="form-label">
+                            <i class="fas fa-pen-fancy me-2"></i>Your Entry
+                        </label>
+                        <textarea id="content" name="content" required><?php 
+                            echo htmlspecialchars($entry['content']); 
+                        ?></textarea>
+                        <div class="help-text">
+                            <i class="fas fa-info-circle me-1"></i>
+                            Use Markdown to format your text. You can add headings, lists, links, and more.
+                        </div>
+                    </div>
+
+                    <!-- Current Images -->
+                    <?php if (!empty($entry['images'])): ?>
+                    <div class="mb-3">
+                        <label class="form-label">Current Images</label>
+                        <div class="current-images">
+                            <?php foreach ($entry['images'] as $image): ?>
+                                <div class="image-wrapper">
+                                    <img src="<?php echo htmlspecialchars($image); ?>" class="preview-image">
+                                    <div class="image-remove" onclick="removeImage(this)" 
+                                        data-image="<?php echo htmlspecialchars($image); ?>">
+                                        <i class="fas fa-times"></i>
+                                    </div>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                    <?php endif; ?>
+
+                    <!-- New Images -->
+                    <div class="mb-4">
+                        <label for="images" class="form-label">
+                            <i class="fas fa-plus-circle me-2"></i>Add New Images
+                        </label>
+                        <input type="file" class="form-control" id="images" name="images[]" 
+                               accept="image/*" multiple onchange="previewImages(event)">
+                        <div id="preview-container" class="preview-container">
+                            <div class="empty-preview">
+                                <i class="fas fa-cloud-upload-alt fa-2x mb-2"></i>
+                                <p class="mb-0">Selected images will appear here</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div class="action-buttons">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save me-2"></i>Save Changes
+                        </button>
+                        <a href="journal_view.php?id=<?php echo $id; ?>" class="btn btn-secondary">
+                            <i class="fas fa-times me-2"></i>Cancel
+                        </a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/easymde/dist/easymde.min.js"></script>
+    <script>
+        // Initialize EasyMDE
+        const easyMDE = new EasyMDE({
+            element: document.getElementById('content'),
+            spellChecker: false,
+            autosave: {
+                enabled: true,
+                unique_id: "journal_edit_<?php echo $id; ?>"
+            },
+            toolbar: [
+                "bold", "italic", "heading", "|",
+                "quote", "unordered-list", "ordered-list", "|",
+                "link", "image", "|",
+                "preview", "side-by-side", "fullscreen", "|",
+                "guide"
+            ],
+            status: ["autosave", "words", "lines"],
+            minHeight: "400px"
+        });
+
+        // Image preview function
+        function previewImages(event) {
+            const container = document.getElementById('preview-container');
+            container.innerHTML = '';
+            
+            const files = event.target.files;
+            if (files.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-preview">
+                        <i class="fas fa-cloud-upload-alt fa-2x mb-2"></i>
+                        <p class="mb-0">Selected images will appear here</p>
+                    </div>`;
+                return;
+            }
+            
+            for (let file of files) {
+                if (file.type.startsWith('image/')) {
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        const img = document.createElement('img');
+                        img.src = e.target.result;
+                        img.className = 'preview-image';
+                        img.title = file.name;
+                        container.appendChild(img);
+                    }
+                    reader.readAsDataURL(file);
+                }
+            }
+        }
+
+        // Remove image function
+        function removeImage(element) {
+            if (confirm('Are you sure you want to remove this image?')) {
+                const imagePath = element.dataset.image;
+                // Here you would typically make an AJAX call to remove the image
+                // For now, we'll just hide it visually
+                element.parentElement.style.display = 'none';
+            }
+        }
+    </script>
+
+    <script>
+    function removeImage(element) {
+        if (confirm('Are you sure you want to remove this image?')) {
+            const imagePath = element.dataset.image;
+            const journalId = <?php echo $id; ?>; // Get the journal ID from PHP
+
+            // Send AJAX request to delete the image
+            fetch('delete_image.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    journal_id: journalId,
+                    image_path: imagePath
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    element.parentElement.style.display = 'none';
+                } else {
+                    alert('Failed to delete image: ' + data.message);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Failed to delete image');
+            });
+        }
+    }
+    </script>
+</body>
+</html>
+
+// journal_view.php 
+
+<?php
+require_once 'config.php';
+require_once 'auth.php';
+require_once 'journal.php';
+
+$auth = new Auth($conn);
+$journal = new Journal($conn);
+
+if (!$auth->isLoggedIn()) {
+    header("Location: login.php");
+    exit();
+}
+
+$id = $_GET['id'] ?? 0;
+$entry = $journal->read($id, $_SESSION['user_id']);
+
+if (!$entry) {
+    header("Location: journals.php");
+    exit();
+}
+?>
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title><?php echo htmlspecialchars($entry['title']); ?> - Journal Entry</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css" rel="stylesheet">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Merriweather:ital,wght@0,300;0,400;0,700;1,300;1,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/lightgallery@2.7.1/css/lightgallery.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/lightgallery@2.7.1/css/lg-zoom.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/lightgallery@2.7.1/css/lg-thumbnail.min.css">
+
+    <style>
+        body {
+            background-color: #f8f9fa;
+            font-family: 'Inter', sans-serif;
+            line-height: 1.6;
+            color: #2c3e50;
+        }
+        .container-fluid {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            min-height: 100vh;
+            padding: 2rem 0;
+        }
+        .journal-container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+        .btn-back {
+            text-decoration: none;
+            color: #6c757d;
+            display: inline-flex;
+            align-items: center;
+            font-size: 0.95rem;
+            margin-bottom: 1.5rem;
+            transition: color 0.2s;
+        }
+        .btn-back:hover {
+            color: #343a40;
+        }
+        .journal-card {
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+            padding: 2.5rem;
+            margin-bottom: 2rem;
+        }
+        .journal-header {
+            margin-bottom: 2rem;
+            padding-bottom: 1.5rem;
+            border-bottom: 2px solid #e9ecef;
+        }
+        .journal-title {
+            font-family: 'Merriweather', serif;
+            font-size: 2.5rem;
+            color: #1a202c;
+            font-weight: 700;
+            line-height: 1.3;
+            margin-bottom: 0.75rem;
+        }
+        .journal-date {
+            font-size: 1.1rem;
+            color: #6c757d;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .journal-content {
+            font-family: 'Merriweather', serif;
+            font-size: 1.15rem;
+            line-height: 1.8;
+            color: #2d3748;
+        }
+        .journal-content p {
+            margin-bottom: 1.5rem;
+        }
+        .journal-content h1, 
+        .journal-content h2, 
+        .journal-content h3 {
+            font-family: 'Merriweather', serif;
+            color: #1a202c;
+            margin-top: 2rem;
+            margin-bottom: 1rem;
+            font-weight: 700;
+        }
+        .journal-content h1 { font-size: 1.8rem; }
+        .journal-content h2 { font-size: 1.5rem; }
+        .journal-content h3 { font-size: 1.3rem; }
+        
+        .journal-content blockquote {
+            border-left: 4px solid #4a5568;
+            padding-left: 1.5rem;
+            margin: 1.5rem 0;
+            font-style: italic;
+            color: #4a5568;
+        }
+        .journal-content pre {
+            background: #f8f9fa;
+            padding: 1.5rem;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin: 1.5rem 0;
+        }
+        .journal-content code {
+            background: #f1f3f5;
+            padding: 0.2em 0.4em;
+            border-radius: 4px;
+            font-size: 0.9em;
+            color: #e83e8c;
+        }
+        .journal-content img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 8px;
+            margin: 1.5rem 0;
+        }
+        .journal-content ul, 
+        .journal-content ol {
+            margin: 1.5rem 0;
+            padding-left: 2rem;
+        }
+        .journal-content li {
+            margin-bottom: 0.5rem;
+        }
+        .image-gallery {
+            margin-top: 3rem;
+            padding-top: 2rem;
+            border-top: 2px solid #e9ecef;
+        }
+        .gallery-title {
+            font-family: 'Inter', sans-serif;
+            font-size: 1.25rem;
+            color: #4a5568;
+            margin-bottom: 1.5rem;
+            font-weight: 600;
+        }
+        .gallery-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 1rem;
+        }
+        .gallery-item {
+            aspect-ratio: 1;
+            overflow: hidden;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            transition: transform 0.2s;
+        }
+        .gallery-item:hover {
+            transform: scale(1.02);
+        }
+        .gallery-item img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .action-buttons {
+            display: flex;
+            gap: 1rem;
+            margin-top: 2rem;
+        }
+        .action-buttons .btn {
+            padding: 0.75rem 1.5rem;
+            font-weight: 500;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        @media (max-width: 768px) {
+            .journal-card {
+                padding: 1.5rem;
+            }
+            .journal-title {
+                font-size: 2rem;
+            }
+            .journal-content {
+                font-size: 1.1rem;
+            }
+            .action-buttons {
+                flex-direction: column;
+            }
+            .action-buttons .btn {
+                width: 100%;
+                justify-content: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <?php include 'navbar.php'; ?>
+
+    <div class="container-fluid">
+        <div class="journal-container">
+            <a href="journals.php" class="btn-back">
+                <i class="fas fa-arrow-left me-2"></i>
+                Back to Journals
+            </a>
+
+            <div class="journal-card">
+                <!-- Journal Header -->
+                <header class="journal-header">
+                    <h1 class="journal-title"><?php echo htmlspecialchars($entry['title']); ?></h1>
+                    <div class="journal-date">
+                        <i class="far fa-calendar"></i>
+                        <?php echo date('F j, Y', strtotime($entry['entry_date'])); ?>
+                    </div>
+                </header>
+
+                <!-- Journal Content -->
+                <div class="journal-content">
+                    <?php echo $entry['content_html']; ?>
+                </div>
+
+                <!-- Image Gallery -->
+                <?php if (!empty($entry['images'])): ?>
+                <div class="gallery-container">
+                    <h2 class="gallery-title">
+                        <i class="fas fa-images me-2"></i>
+                        Attached Images
+                    </h2>
+                    <div class="gallery" id="lightgallery">
+                        <?php foreach ($entry['images'] as $image): ?>
+                            <a href="<?php echo htmlspecialchars($image); ?>" class="gallery-item">
+                                <img src="<?php echo htmlspecialchars($image); ?>" alt="Journal image" />
+                            </a>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+                <?php endif; ?>
+
+                <!-- Action Buttons -->
+                <div class="action-buttons">
+                    <a href="journal_edit.php?id=<?php echo $entry['id']; ?>" class="btn btn-primary">
+                        <i class="fas fa-edit"></i>
+                        Edit Entry
+                    </a>
+                    <a href="journals.php" class="btn btn-secondary">
+                        <i class="fas fa-list"></i>
+                        All Entries
+                    </a>
+                    <button onclick="if(confirm('Are you sure you want to delete this entry?')) window.location.href='journal_delete.php?id=<?php echo $entry['id']; ?>'" 
+                            class="btn btn-danger">
+                        <i class="fas fa-trash-alt"></i>
+                        Delete Entry
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+    <!-- Add these scripts just before closing body tag -->
+<script src="https://cdn.jsdelivr.net/npm/lightgallery@2.7.1/lightgallery.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/lightgallery@2.7.1/plugins/zoom/lg-zoom.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/lightgallery@2.7.1/plugins/thumbnail/lg-thumbnail.min.js"></script>
+
+<script>
+    // Initialize lightGallery
+    const lgElement = document.getElementById('lightgallery');
+    if (lgElement) {
+        lightGallery(lgElement, {
+            speed: 500,
+            plugins: [lgZoom, lgThumbnail],
+            thumbnail: true,
+            download: false,
+            mode: 'lg-fade',
+        });
+    }
+</script>
+
+<style>
+    .gallery-container {
+        margin-top: 3rem;
+        padding-top: 2rem;
+        border-top: 2px solid #e9ecef;
+    }
+    .gallery-title {
+        font-family: 'Inter', sans-serif;
+        font-size: 1.25rem;
+        color: #4a5568;
+        margin-bottom: 1.5rem;
+        font-weight: 600;
+    }
+    .gallery {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 1rem;
+    }
+    .gallery-item {
+        aspect-ratio: 1;
+        overflow: hidden;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        transition: transform 0.2s;
+        cursor: pointer;
+    }
+    .gallery-item:hover {
+        transform: scale(1.02);
+    }
+    .gallery-item img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
+    /* LightGallery custom styles */
+    .lg-backdrop {
+        background-color: rgba(0, 0, 0, 0.9);
+    }
+    .lg-outer .lg-img-wrap {
+        padding: 1rem;
+    }
+</style>
+</body>
+</html>
+
+// journal.php 
+
+<?php
+// journal.php
+
+require_once 'vendor/autoload.php'; // For Parsedown
+use Parsedown;
+
+class Journal {
+    private $conn;
+    private $parsedown;
+
+    public function __construct($db) {
+        $this->conn = $db;
+        $this->parsedown = new Parsedown();
+        $this->parsedown->setSafeMode(true);
+    }
+
+    // Create new journal entry
+    public function create($user_id, $title, $content, $entry_date, $images = []) {
+        try {
+            $stmt = $this->conn->prepare("INSERT INTO journals (user_id, title, content, entry_date) VALUES (?, ?, ?, ?)");
+            $stmt->bind_param("isss", $user_id, $title, $content, $entry_date);
+            
+            if ($stmt->execute()) {
+                $journal_id = $this->conn->insert_id;
+                
+                // Handle image uploads if any
+                if (!empty($images['tmp_name'][0])) {
+                    $this->saveImages($journal_id, $images, $title);
+                }
+                
+                return $journal_id;
+            }
+            return false;
+        } catch (Exception $e) {
+            error_log("Journal creation error: " . $e->getMessage());
+            return false;
+        }
+    }
+
+    // Read journal entry
+    public function read($id, $user_id) {
+        $stmt = $this->conn->prepare("
+            SELECT j.*, GROUP_CONCAT(ji.image_path) as images 
+            FROM journals j 
+            LEFT JOIN journal_images ji ON j.id = ji.journal_id 
+            WHERE j.id = ? AND j.user_id = ? 
+            GROUP BY j.id
+        ");
+        $stmt->bind_param("ii", $id, $user_id);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        
+        if ($row = $result->fetch_assoc()) {
+            // Convert Markdown to HTML
+            $row['content_html'] = $this->parsedown->text($row['content']);
+            $row['images'] = $row['images'] ? explode(',', $row['images']) : [];
+            return $row;
+        }
+        return false;
+    }
+
+    // Update journal entry
+    public function update($id, $user_id, $title, $content, $entry_date, $images = []) {
+        try {
+            // Start transaction
+            $this->conn->begin_transaction();
+    
+            // Update journal entry
+            $stmt = $this->conn->prepare("UPDATE journals SET title = ?, content = ?, entry_date = ? WHERE id = ? AND user_id = ?");
+            $stmt->bind_param("sssii", $title, $content, $entry_date, $id, $user_id);
+            
+            if ($stmt->execute()) {
+                // Handle new image uploads if any
+                if (!empty($images['tmp_name'][0])) {
+                    $this->saveImages($id, $images, $title);
+                }
+                
+                // Commit transaction
+                $this->conn->commit();
+                return true;
+            }
+    
+            // If we get here, something went wrong
+            $this->conn->rollback();
+            return false;
+    
+        } catch (Exception $e) {
+            // Rollback transaction on error
+            $this->conn->rollback();
+            error_log("Journal update error: " . $e->getMessage());
+            return false;
+        }
+    }
+
+    // Delete journal entry
+    public function delete($id, $user_id) {
+        try {
+            // First, get all image paths for this journal
+            $stmt = $this->conn->prepare("SELECT image_path FROM journal_images WHERE journal_id = ?");
+            $stmt->bind_param("i", $id);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            
+            // Delete physical image files
+            while ($row = $result->fetch_assoc()) {
+                $image_path = $row['image_path'];
+                if (file_exists($image_path)) {
+                    unlink($image_path);
+                }
+            }
+    
+            // Start transaction
+            $this->conn->begin_transaction();
+    
+            // Delete images from journal_images table
+            $stmt = $this->conn->prepare("DELETE FROM journal_images WHERE journal_id = ?");
+            $stmt->bind_param("i", $id);
+            $stmt->execute();
+    
+            // Delete the journal entry
+            $stmt = $this->conn->prepare("DELETE FROM journals WHERE id = ? AND user_id = ?");
+            $stmt->bind_param("ii", $id, $user_id);
+            $stmt->execute();
+    
+            // Commit transaction
+            $this->conn->commit();
+            return true;
+    
+        } catch (Exception $e) {
+            // If any error occurs, rollback the changes
+            $this->conn->rollback();
+            error_log("Journal deletion error: " . $e->getMessage());
+            return false;
+        }
+    }
+
+    // Get all journal entries for a user
+    public function getAllForUser($user_id) {
+        $stmt = $this->conn->prepare("
+            SELECT j.*, COUNT(ji.id) as image_count 
+            FROM journals j 
+            LEFT JOIN journal_images ji ON j.id = ji.journal_id 
+            WHERE j.user_id = ? 
+            GROUP BY j.id 
+            ORDER BY j.entry_date DESC
+        ");
+        $stmt->bind_param("i", $user_id);
+        $stmt->execute();
+        return $stmt->get_result();
+    }
+
+    private function compressImage($source, $destination, $quality = 70) {
+        $info = getimagesize($source);
+    
+        // Read EXIF data before creating image
+        $exif = @exif_read_data($source);
+        
+        if ($info['mime'] == 'image/jpeg') {
+            $image = imagecreatefromjpeg($source);
+        } elseif ($info['mime'] == 'image/png') {
+            $image = imagecreatefrompng($source);
+        } else {
+            return false;
+        }
+    
+        // Fix image orientation based on EXIF data
+        if (!empty($exif['Orientation'])) {
+            switch ($exif['Orientation']) {
+                case 3:
+                    $image = imagerotate($image, 180, 0);
+                    break;
+                case 6:
+                    $image = imagerotate($image, -90, 0);
+                    break;
+                case 8:
+                    $image = imagerotate($image, 90, 0);
+                    break;
+            }
+        }
+    
+        // Get dimensions after rotation
+        $width = imagesx($image);
+        $height = imagesy($image);
+        
+        // Calculate new dimensions (maintain aspect ratio)
+        $max_width = 1920;
+        $max_height = 1080;
+        
+        $ratio = min($max_width/$width, $max_height/$height);
+        
+        // Only resize if the image is larger than max dimensions
+        if ($ratio < 1) {
+            $new_width = floor($width * $ratio);
+            $new_height = floor($height * $ratio);
+    
+            $new_image = imagecreatetruecolor($new_width, $new_height);
+            
+            // Preserve transparency for PNG
+            if ($info['mime'] == 'image/png') {
+                imagealphablending($new_image, false);
+                imagesavealpha($new_image, true);
+                $transparent = imagecolorallocatealpha($new_image, 255, 255, 255, 127);
+                imagefilledrectangle($new_image, 0, 0, $new_width, $new_height, $transparent);
+            }
+            
+            imagecopyresampled($new_image, $image, 0, 0, 0, 0, $new_width, $new_height, $width, $height);
+            imagedestroy($image);
+            $image = $new_image;
+        }
+    
+        // Save the compressed image
+        if ($info['mime'] == 'image/jpeg') {
+            imagejpeg($image, $destination, $quality);
+        } else {
+            imagesavealpha($image, true);
+            imagepng($image, $destination, 8);
+        }
+    
+        imagedestroy($image);
+        return true;
+    }
+
+    // Save uploaded images
+    private function saveImages($journal_id, $images, $title) {
+        $upload_dir = 'uploads/journals/';
+        if (!file_exists($upload_dir)) {
+            mkdir($upload_dir, 0777, true);
+        }
+    
+        // Process title for filename
+        $title_words = explode(' ', strtolower($title));
+        $title_words = array_slice($title_words, 0, 3); // Get first 3 words
+        $title_part = implode('_', $title_words);
+        // Remove special characters and keep only alphanumeric and underscores
+        $title_part = preg_replace('/[^a-z0-9_]/', '', $title_part);
+    
+        $stmt = $this->conn->prepare("INSERT INTO journal_images (journal_id, image_path) VALUES (?, ?)");
+        
+        // Get current number of images for this journal
+        $count_stmt = $this->conn->prepare("SELECT COUNT(*) as count FROM journal_images WHERE journal_id = ?");
+        $count_stmt->bind_param("i", $journal_id);
+        $count_stmt->execute();
+        $current_count = $count_stmt->get_result()->fetch_assoc()['count'];
+        
+        foreach ($images['tmp_name'] as $key => $tmp_name) {
+            // Get original file extension
+            $file_extension = strtolower(pathinfo($images['name'][$key], PATHINFO_EXTENSION));
+            
+            // Create filename: journal_id + title + index + timestamp
+            $file_name = sprintf(
+                'journal_%d_%s_%d_%s.%s',
+                $journal_id,
+                $title_part,
+                $current_count + $key + 1, // Continue numbering from existing images
+                date('YmdHis'),
+                $file_extension
+            );
+            
+            $file_path = $upload_dir . $file_name;
+            
+            // Compress and save the image
+            if ($this->compressImage($tmp_name, $file_path)) {
+                $stmt->bind_param("is", $journal_id, $file_path);
+                $stmt->execute();
+            }
+        }
+    }
+
+    // Delete images associated with a journal entry
+    private function deleteImages($journal_id) {
+        $stmt = $this->conn->prepare("SELECT image_path FROM journal_images WHERE journal_id = ?");
+        $stmt->bind_param("i", $journal_id);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        
+        while ($row = $result->fetch_assoc()) {
+            if (file_exists($row['image_path'])) {
+                unlink($row['image_path']);
+            }
+        }
+        
+        $stmt = $this->conn->prepare("DELETE FROM journal_images WHERE journal_id = ?");
+        $stmt->bind_param("i", $journal_id);
+        $stmt->execute();
+    }
+}
+?>
+
+// journals_by_date.php
+
+<?php
+require_once 'config.php';
+require_once 'auth.php';
+require_once 'journal.php';
+
+$auth = new Auth($conn);
+$journal = new Journal($conn);
+
+if (!$auth->isLoggedIn()) {
+    header("Location: login.php");
+    exit();
+}
+
+// Get the date from URL
+$date = isset($_GET['date']) ? $_GET['date'] : date('Y-m-d');
+
+// Validate date format
+if (!DateTime::createFromFormat('Y-m-d', $date)) {
+    header("Location: calendar.php");
+    exit();
+}
+
+// Get all entries for the specific date
+$query = "SELECT j.*, 
+        (SELECT image_path FROM journal_images WHERE journal_id = j.id LIMIT 1) as thumbnail,
+        (SELECT COUNT(*) FROM journal_images WHERE journal_id = j.id) as image_count
+        FROM journals j 
+        WHERE j.user_id = ? 
+        AND DATE(j.entry_date) = ?
+        ORDER BY j.entry_date DESC, j.id DESC";
+
+$stmt = $conn->prepare($query);
+$stmt->bind_param("is", $_SESSION['user_id'], $date);
+$stmt->execute();
+$entries = $stmt->get_result();
+?>
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Journal Entries for <?php echo date('F j, Y', strtotime($date)); ?></title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Merriweather:ital,wght@0,300;0,400;0,700;1,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        body {
+            background-color: #f8f9fa;
+            font-family: 'Inter', sans-serif;
+            color: #2c3e50;
+        }
+        .container-fluid {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            min-height: 100vh;
+            padding: 2rem 0;
+        }
+        .journal-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+        .page-header {
+            margin-bottom: 2rem;
+        }
+        .date-header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+        .date-title {
+            font-family: 'Merriweather', serif;
+            font-size: 2rem;
+            color: #1a202c;
+            margin-bottom: 0.5rem;
+        }
+        .btn-back {
+            text-decoration: none;
+            color: #6c757d;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 2rem;
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            transition: all 0.2s;
+        }
+        .btn-back:hover {
+            background: rgba(255, 255, 255, 0.5);
+            color: #4a5568;
+        }
+        .journal-card {
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            height: 100%;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        .journal-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 15px rgba(0,0,0,0.1);
+        }
+        .journal-thumbnail {
+            height: 200px;
+            position: relative;
+            overflow: hidden;
+            border-bottom: 1px solid #e9ecef;
+        }
+        .journal-thumbnail img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transition: transform 0.3s ease;
+        }
+        .journal-card:hover .journal-thumbnail img {
+            transform: scale(1.05);
+        }
+        .no-image-icon {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: #f8f9fa;
+            color: #cbd5e0;
+            font-size: 2rem;
+        }
+        .journal-content {
+            padding: 1.5rem;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+        .journal-title {
+            font-family: 'Merriweather', serif;
+            font-size: 1.25rem;
+            margin-bottom: 0.5rem;
+        }
+        .journal-title a {
+            color: #2d3748;
+            text-decoration: none;
+        }
+        .journal-title a:hover {
+            color: #4a90e2;
+        }
+        .journal-preview {
+            color: #4a5568;
+            margin-bottom: 1rem;
+            flex: 1;
+        }
+        .journal-footer {
+            padding: 1rem 1.5rem;
+            background: #f8f9fa;
+            border-top: 1px solid #e9ecef;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .tag {
+            font-size: 0.8rem;
+            padding: 0.25rem 0.75rem;
+            border-radius: 50px;
+            background: #e9ecef;
+            color: #495057;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+    </style>
+</head>
+<body>
+    <?php include 'navbar.php'; ?>
+
+    <div class="container-fluid">
+        <div class="journal-container">
+            <a href="calendar.php" class="btn-back">
+                <i class="fas fa-arrow-left"></i>
+                Back to Calendar
+            </a>
+
+            <div class="date-header">
+                <h1 class="date-title"><?php echo date('F j, Y', strtotime($date)); ?></h1>
+                <p class="text-muted">All journal entries for this date</p>
+            </div>
+
+            <?php if ($entries->num_rows > 0): ?>
+                <div class="row g-4">
+                    <?php while ($entry = $entries->fetch_assoc()): 
+                        $preview = strip_tags(substr($entry['content'], 0, 150));
+                    ?>
+                        <div class="col-12 col-md-6 col-lg-4">
+                            <div class="journal-card">
+                                <div class="journal-thumbnail">
+                                    <?php if ($entry['thumbnail']): ?>
+                                        <img src="<?php echo htmlspecialchars($entry['thumbnail']); ?>" alt="Journal thumbnail">
+                                    <?php else: ?>
+                                        <div class="no-image-icon">
+                                            <i class="fas fa-file-alt"></i>
+                                            <span>Text Only</span>
+                                        </div>
+                                    <?php endif; ?>
+                                </div>
+
+                                <div class="journal-content">
+                                    <h2 class="journal-title">
+                                        <a href="journal_view.php?id=<?php echo $entry['id']; ?>">
+                                            <?php echo htmlspecialchars($entry['title']); ?>
+                                        </a>
+                                    </h2>
+
+                                    <div class="journal-preview">
+                                        <?php echo htmlspecialchars($preview) . '...'; ?>
+                                    </div>
+                                </div>
+
+                                <div class="journal-footer">
+                                    <span class="tag">
+                                        <i class="fas fa-images"></i>
+                                        <?php echo $entry['image_count']; ?> images
+                                    </span>
+                                    
+                                    <div class="btn-group">
+                                        <a href="journal_view.php?id=<?php echo $entry['id']; ?>" class="btn btn-sm btn-outline-secondary">
+                                           <i class="far fa-eye me-1"></i>
+                                        </a>
+                                        <a href="journal_edit.php?id=<?php echo $entry['id']; ?>" 
+                                           class="btn btn-sm btn-outline-secondary">
+                                            <i class="fas fa-edit"></i>
+                                        </a>
+                                        <button onclick="deleteEntry(<?php echo $entry['id']; ?>)" 
+                                                class="btn btn-sm btn-outline-danger">
+                                            <i class="fas fa-trash-alt"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    <?php endwhile; ?>
+                </div>
+            <?php else: ?>
+                <div class="text-center">
+                    <div class="alert alert-info">
+                        No journal entries found for this date.
+                    </div>
+                </div>
+            <?php endif; ?>
+        </div>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        function deleteEntry(id) {
+            if (confirm('Are you sure you want to delete this entry?')) {
+                window.location.href = 'journal_delete.php?id=' + id;
+            }
+        }
+    </script>
+</body>
+</html>
+
+// journals.php 
+
+<?php
+require_once 'config.php';
+require_once 'auth.php';
+require_once 'journal.php';
+
+$auth = new Auth($conn);
+$journal = new Journal($conn);
+
+if (!$auth->isLoggedIn()) {
+    header("Location: login.php");
+    exit();
+}
+
+// Pagination settings
+$entries_per_page = 30;
+$page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+$page = max(1, $page); // Ensure page is at least 1
+$offset = ($page - 1) * $entries_per_page;
+
+// Handle search
+$search = isset($_GET['search']) ? trim($_GET['search']) : '';
+
+// Get total number of entries for pagination
+$count_query = "SELECT COUNT(*) as total FROM journals WHERE user_id = ?";
+$count_params = [$_SESSION['user_id']];
+$count_types = "i";
+
+if (!empty($search)) {
+    $count_query .= " AND (title LIKE ? OR content LIKE ?)";
+    $count_params[] = "%$search%";
+    $count_params[] = "%$search%";
+    $count_types .= "ss";
+}
+
+$stmt = $conn->prepare($count_query);
+$stmt->bind_param($count_types, ...$count_params);
+$stmt->execute();
+$total_entries = $stmt->get_result()->fetch_assoc()['total'];
+$total_pages = ceil($total_entries / $entries_per_page);
+
+// Ensure current page doesn't exceed total pages
+$page = min($page, max(1, $total_pages));
+
+// Get entries for current page
+$query = "SELECT j.*, 
+        (SELECT image_path FROM journal_images WHERE journal_id = j.id LIMIT 1) as thumbnail,
+        (SELECT COUNT(*) FROM journal_images WHERE journal_id = j.id) as image_count
+        FROM journals j 
+        WHERE j.user_id = ?";
+
+$params = array($_SESSION['user_id']);
+$types = "i";
+
+if (!empty($search)) {
+    $query .= " AND (j.title LIKE ? OR j.content LIKE ?)";
+    $searchParam = "%$search%";
+    $params[] = $searchParam;
+    $params[] = $searchParam;
+    $types .= "ss";
+}
+
+$query .= " ORDER BY j.entry_date DESC, j.id DESC LIMIT ? OFFSET ?";
+$params[] = $entries_per_page;
+$params[] = $offset;
+$types .= "ii";
+
+$stmt = $conn->prepare($query);
+$stmt->bind_param($types, ...$params);
+$stmt->execute();
+$entries = $stmt->get_result();
+?>
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>My Journals</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Merriweather:ital,wght@0,300;0,400;0,700;1,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <!-- Previous styles remain the same -->
+    <style>
+
+body {
+            background-color: #f8f9fa;
+            font-family: 'Inter', sans-serif;
+            color: #2c3e50;
+        }
+        .container-fluid {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            min-height: 100vh;
+            padding: 2rem 0;
+        }
+        .journal-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+        .page-header {
+            margin-bottom: 2rem;
+        }
+        .page-title {
+            font-family: 'Merriweather', serif;
+            font-size: 2rem;
+            color: #1a202c;
+            margin-bottom: 0.5rem;
+        }
+        .search-bar {
+            max-width: 600px;
+            margin: 2rem auto;
+        }
+        .search-input {
+            border: none;
+            border-radius: 50px;
+            padding: 1rem 1.5rem;
+            font-size: 1.1rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            transition: all 0.3s ease;
+        }
+        .search-input:focus {
+            box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+        }
+        .search-btn {
+            border-radius: 50px;
+            padding: 0.7rem 1.5rem;
+        }
+        .journal-card {
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            height: 100%;
+            overflow: hidden;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+        }
+        .journal-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 15px rgba(0,0,0,0.1);
+        }
+        .journal-thumbnail {
+            height: 200px;
+            background-color: #f8f9fa;
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-bottom: 1px solid #e9ecef;
+        }
+        .journal-thumbnail img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transition: transform 0.3s ease;
+        }
+        .journal-card:hover .journal-thumbnail img {
+            transform: scale(1.05);
+        }
+        .no-image-icon {
+            color: #cbd5e0;
+            font-size: 3rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .no-image-icon span {
+            font-size: 0.9rem;
+            color: #a0aec0;
+        }
+        .journal-content {
+            padding: 1.5rem;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+        .journal-title {
+            font-family: 'Merriweather', serif;
+            font-size: 1.25rem;
+            color: #2d3748;
+            margin-bottom: 0.5rem;
+            line-height: 1.4;
+        }
+        .journal-title a {
+            text-decoration: none;
+            color: inherit;
+        }
+        .journal-title a:hover {
+            color: #4a90e2;
+        }
+        .journal-date {
+            font-size: 0.9rem;
+            color: #6c757d;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .journal-preview {
+            font-family: 'Inter', sans-serif;
+            color: #4a5568;
+            line-height: 1.7;
+            flex: 1;
+            display: -webkit-box;
+            -webkit-line-clamp: 4;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            margin-bottom: 1rem;
+        }
+        .journal-footer {
+            padding: 1rem 1.5rem;
+            background: #f8f9fa;
+            border-top: 1px solid #e9ecef;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .tag {
+            font-size: 0.8rem;
+            padding: 0.25rem 0.75rem;
+            border-radius: 50px;
+            background: #e9ecef;
+            color: #495057;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+        .btn-create {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            width: 60px;
+            height: 60px;
+            border-radius: 30px;
+            background: #4a90e2;
+            color: white;
+            box-shadow: 0 4px 10px rgba(74, 144, 226, 0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            transition: transform 0.3s ease;
+            z-index: 1000;
+            text-decoration: none;
+        }
+        .btn-create:hover {
+            transform: scale(1.1);
+            color: white;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 4rem 2rem;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        }
+        .empty-icon {
+            font-size: 4rem;
+            color: #cbd5e0;
+            margin-bottom: 1.5rem;
+        }
+        .btn-group .btn {
+            padding: 0.4rem 0.8rem;
+            font-size: 0.9rem;
+        }
+        @media (max-width: 768px) {
+            .journal-thumbnail {
+                height: 150px;
+            }
+            .btn-create {
+                bottom: 1rem;
+                right: 1rem;
+            }
+            .journal-content {
+                padding: 1rem;
+            }
+            .journal-footer {
+                padding: 0.75rem 1rem;
+            }
+        }
+
+        .pagination-container {
+            margin-top: 2rem;
+            padding: 1rem;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        }
+        .pagination {
+            margin: 0;
+            gap: 0.5rem;
+        }
+        .page-link {
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            color: #4a5568;
+            transition: all 0.3s ease;
+        }
+        .page-link:hover {
+            background: #edf2f7;
+            color: #2d3748;
+        }
+        .page-item.active .page-link {
+            background: #4a90e2;
+            color: white;
+        }
+        .page-info {
+            color: #6c757d;
+            font-size: 0.9rem;
+            text-align: center;
+            margin-top: 0.5rem;
+        }
+    </style>
+</head>
+<body>
+    <?php include 'navbar.php'; ?>
+
+    <div class="container-fluid">
+        <div class="journal-container">
+            <!-- Page Header -->
+            <div class="page-header text-center">
+                <h1 class="page-title">My Journal Entries</h1>
+                <p class="text-muted">Your personal space for thoughts and memories</p>
+            </div>
+
+            <!-- Search Bar -->
+            <div class="search-bar">
+                <form method="GET" action="" class="input-group">
+                    <input type="text" name="search" class="form-control search-input" 
+                           placeholder="Search your journals..." 
+                           value="<?php echo htmlspecialchars($search); ?>">
+                    <button type="submit" class="btn btn-primary search-btn">
+                        <i class="fas fa-search"></i>
+                    </button>
+                </form>
+            </div>
+
+            <!-- Search Results Info -->
+            <?php if (!empty($search)): ?>
+                <div class="text-center mb-4">
+                    <p class="text-muted">
+                        <?php echo "Found $total_entries " . ($total_entries == 1 ? "entry" : "entries") . " for \"" . htmlspecialchars($search) . "\""; ?>
+                        <a href="journals.php" class="ms-2"><i class="fas fa-times"></i> Clear search</a>
+                    </p>
+                </div>
+            <?php endif; ?>
+
+            <!-- Journal Entries Grid -->
+            <?php if ($entries->num_rows > 0): ?>
+                <div class="row g-4">
+                    <?php while ($entry = $entries->fetch_assoc()): 
+                        $preview = strip_tags(substr($entry['content'], 0, 150));
+                    ?>
+                        <!-- Journal card content remains the same -->
+                        <div class="col-12 col-md-6 col-lg-4">
+                            <div class="journal-card">
+                                <div class="journal-thumbnail">
+                                    <?php if ($entry['thumbnail']): ?>
+                                        <img src="<?php echo htmlspecialchars($entry['thumbnail']); ?>" alt="Journal thumbnail">
+                                    <?php else: ?>
+                                        <div class="no-image-icon">
+                                            <i class="fas fa-file-alt"></i>
+                                            <span>Text Only</span>
+                                        </div>
+                                    <?php endif; ?>
+                                </div>
+
+                                <div class="journal-content">
+                                    <h2 class="journal-title">
+                                        <a href="journal_view.php?id=<?php echo $entry['id']; ?>">
+                                            <?php echo htmlspecialchars($entry['title']); ?>
+                                        </a>
+                                    </h2>
+                                    
+                                    <div class="journal-date">
+                                        <i class="far fa-calendar-alt"></i>
+                                        <?php echo date('F j, Y', strtotime($entry['entry_date'])); ?>
+                                    </div>
+
+                                    <div class="journal-preview">
+                                        <?php echo htmlspecialchars($preview) . '...'; ?>
+                                    </div>
+                                </div>
+
+                                <div class="journal-footer">
+                                    <span class="tag">
+                                        <i class="fas fa-images"></i>
+                                        <?php echo $entry['image_count']; ?> images
+                                    </span>
+                                    
+                                    <div class="btn-group">
+                                        <a href="journal_view.php?id=<?php echo $entry['id']; ?>" class="btn btn-sm btn-outline-secondary">
+                                           <i class="far fa-eye me-1"></i>
+                                        </a>
+                                        <a href="journal_edit.php?id=<?php echo $entry['id']; ?>" 
+                                           class="btn btn-sm btn-outline-secondary">
+                                            <i class="fas fa-edit"></i>
+                                        </a>
+                                        <button onclick="deleteEntry(<?php echo $entry['id']; ?>)" 
+                                                class="btn btn-sm btn-outline-danger">
+                                            <i class="fas fa-trash-alt"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    <?php endwhile; ?>
+                </div>
+
+                <!-- Pagination -->
+                <div class="pagination-container">
+                    <nav aria-label="Journal navigation">
+                        <ul class="pagination justify-content-center">
+                            <!-- First Page -->
+                            <li class="page-item <?php echo ($page <= 1) ? 'disabled' : ''; ?>">
+                                <a class="page-link" href="?page=1<?php echo !empty($search) ? '&search=' . urlencode($search) : ''; ?>" aria-label="First">
+                                    <i class="fas fa-angle-double-left"></i>
+                                </a>
+                            </li>
+                            
+                            <!-- Previous Page -->
+                            <li class="page-item <?php echo ($page <= 1) ? 'disabled' : ''; ?>">
+                                <a class="page-link" href="?page=<?php echo $page - 1; ?><?php echo !empty($search) ? '&search=' . urlencode($search) : ''; ?>" aria-label="Previous">
+                                    <i class="fas fa-angle-left"></i>
+                                </a>
+                            </li>
+
+                            <?php
+                            $start_page = max(1, $page - 2);
+                            $end_page = min($total_pages, $start_page + 4);
+                            $start_page = max(1, min($start_page, $end_page - 4));
+
+                            for ($i = $start_page; $i <= $end_page; $i++):
+                            ?>
+                                <li class="page-item <?php echo ($page == $i) ? 'active' : ''; ?>">
+                                    <a class="page-link" href="?page=<?php echo $i; ?><?php echo !empty($search) ? '&search=' . urlencode($search) : ''; ?>">
+                                        <?php echo $i; ?>
+                                    </a>
+                                </li>
+                            <?php endfor; ?>
+
+                            <!-- Next Page -->
+                            <li class="page-item <?php echo ($page >= $total_pages) ? 'disabled' : ''; ?>">
+                                <a class="page-link" href="?page=<?php echo $page + 1; ?><?php echo !empty($search) ? '&search=' . urlencode($search) : ''; ?>" aria-label="Next">
+                                    <i class="fas fa-angle-right"></i>
+                                </a>
+                            </li>
+
+                            <!-- Last Page -->
+                            <li class="page-item <?php echo ($page >= $total_pages) ? 'disabled' : ''; ?>">
+                                <a class="page-link" href="?page=<?php echo $total_pages; ?><?php echo !empty($search) ? '&search=' . urlencode($search) : ''; ?>" aria-label="Last">
+                                    <i class="fas fa-angle-double-right"></i>
+                                </a>
+                            </li>
+                        </ul>
+                    </nav>
+                    <div class="page-info">
+                        Showing <?php echo ($offset + 1); ?> to <?php echo min($offset + $entries_per_page, $total_entries); ?> of <?php echo $total_entries; ?> entries
+                    </div>
+                </div>
+
+            <?php else: ?>
+                <div class="empty-state">
+                    <i class="fas fa-book-open empty-icon"></i>
+                    <?php if (!empty($search)): ?>
+                        <h3>No entries found</h3>
+                        <p class="text-muted">Try searching with different keywords</p>
+                    <?php else: ?>
+                        <h3>No journal entries yet</h3>
+                        <p class="text-muted">Start writing your first journal entry today!</p>
+                    <?php endif; ?>
+                    <a href="journal_create.php" class="btn btn-primary mt-3">
+                        <i class="fas fa-plus me-2"></i>Create New Entry
+                    </a>
+                </div>
+            <?php endif; ?>
+
+            <!-- Floating Create Button -->
+            <a href="journal_create.php" class="btn-create" title="Create new entry">
+                <i class="fas fa-plus"></i>
+            </a>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        function deleteEntry(id) {
+            if (confirm('Are you sure you want to delete this entry?')) {
+                window.location.href = 'journal_delete.php?id=' + id;
+            }
+        }
+    </script>
+</body>
+</html>
+
+// login.php 
+
+<?php
+require_once 'config.php';
+require_once 'auth.php';
+
+$auth = new Auth($conn);
+
+// Redirect if already logged in
+if ($auth->isLoggedIn()) {
+    header("Location: journals.php");
+    exit();
+}
+
+$error = '';
+
+if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+    $username = trim($_POST['username']);
+    $password = $_POST['password'];
+    
+    if (empty($username) || empty($password)) {
+        $error = "Please fill in all fields.";
+    } else {
+        if ($auth->login($username, $password)) {
+            header("Location: journals.php");
+            exit();
+        } else {
+            $error = "Invalid username or password.";
+        }
+    }
+}
+?>
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Login - Daily Journal</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css" rel="stylesheet">
+    <style>
+        body {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            padding: 40px 0;
+        }
+        .login-container {
+            max-width: 400px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+        .login-header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+        .login-logo {
+            width: 80px;
+            height: 80px;
+            background: #fff;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 1rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .login-logo i {
+            font-size: 2rem;
+            color: #007bff;
+        }
+        .login-card {
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .login-card .card-body {
+            padding: 2rem;
+        }
+        .form-control {
+            border: 2px solid #e9ecef;
+            padding: 0.75rem 1rem;
+            font-size: 1rem;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+        }
+        .form-control:focus {
+            border-color: #007bff;
+            box-shadow: 0 0 0 0.2rem rgba(0,123,255,0.15);
+        }
+        .input-group-text {
+            border: 2px solid #e9ecef;
+            background: #f8f9fa;
+            border-right: none;
+            border-top-left-radius: 8px;
+            border-bottom-left-radius: 8px;
+        }
+        .input-group .form-control {
+            border-left: none;
+            border-top-left-radius: 0;
+            border-bottom-left-radius: 0;
+        }
+        .btn-login {
+            padding: 0.75rem 1.5rem;
+            font-size: 1rem;
+            border-radius: 8px;
+            width: 100%;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-top: 1rem;
+        }
+        .register-link {
+            text-align: center;
+            margin-top: 1.5rem;
+            color: #6c757d;
+        }
+        .register-link a {
+            color: #007bff;
+            text-decoration: none;
+            font-weight: 500;
+        }
+        .register-link a:hover {
+            text-decoration: underline;
+        }
+        .remember-me {
+            margin-top: 1rem;
+        }
+        .form-check-input:checked {
+            background-color: #007bff;
+            border-color: #007bff;
+        }
+        .error-shake {
+            animation: shake 0.5s;
+        }
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); }
+            20%, 40%, 60%, 80% { transform: translateX(5px); }
+        }
+        .password-toggle {
+            cursor: pointer;
+            padding: 0.75rem 1rem;
+            background: #f8f9fa;
+            border: 2px solid #e9ecef;
+            border-left: none;
+            border-top-right-radius: 8px;
+            border-bottom-right-radius: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <!-- Login Header -->
+        <div class="login-header">
+            <div class="login-logo">
+                <i class="fas fa-book"></i>
+            </div>
+            <h1 class="h3 mb-3">Welcome Back!</h1>
+            <p class="text-muted">Sign in to access your journal</p>
+        </div>
+
+        <!-- Login Form -->
+        <div class="login-card">
+            <div class="card-body">
+                <?php if ($error): ?>
+                    <div class="alert alert-danger alert-dismissible fade show error-shake" role="alert">
+                        <i class="fas fa-exclamation-circle me-2"></i>
+                        <?php echo $error; ?>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                <?php endif; ?>
+
+                <form method="post" class="needs-validation" novalidate>
+                    <!-- Username Field -->
+                    <div class="mb-3">
+                        <label class="form-label">Username</label>
+                        <div class="input-group">
+                            <span class="input-group-text">
+                                <i class="fas fa-user"></i>
+                            </span>
+                            <input type="text" name="username" class="form-control" 
+                                   value="<?php echo isset($_POST['username']) ? htmlspecialchars($_POST['username']) : ''; ?>"
+                                   placeholder="Enter your username" required>
+                        </div>
+                    </div>
+
+                    <!-- Password Field -->
+                    <div class="mb-3">
+                        <label class="form-label">Password</label>
+                        <div class="input-group">
+                            <span class="input-group-text">
+                                <i class="fas fa-lock"></i>
+                            </span>
+                            <input type="password" name="password" class="form-control" 
+                                   id="password" placeholder="Enter your password" required>
+                            <span class="password-toggle" onclick="togglePassword()">
+                                <i class="far fa-eye" id="toggleIcon"></i>
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- Remember Me -->
+                    <div class="remember-me">
+                        <div class="form-check">
+                            <input type="checkbox" class="form-check-input" id="remember" name="remember">
+                            <label class="form-check-label text-muted" for="remember">Remember me</label>
+                        </div>
+                    </div>
+
+                    <!-- Submit Button -->
+                    <button type="submit" class="btn btn-primary btn-login">
+                        <i class="fas fa-sign-in-alt me-2"></i>Login
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Register Link -->
+        <div class="register-link">
+            Don't have an account? <a href="register.php">Register now</a>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Toggle password visibility
+        function togglePassword() {
+            const password = document.getElementById('password');
+            const toggleIcon = document.getElementById('toggleIcon');
+            
+            if (password.type === 'password') {
+                password.type = 'text';
+                toggleIcon.classList.remove('fa-eye');
+                toggleIcon.classList.add('fa-eye-slash');
+            } else {
+                password.type = 'password';
+                toggleIcon.classList.remove('fa-eye-slash');
+                toggleIcon.classList.add('fa-eye');
+            }
+        }
+
+        // Form validation
+        (function () {
+            'use strict'
+            const forms = document.querySelectorAll('.needs-validation')
+            Array.from(forms).forEach(form => {
+                form.addEventListener('submit', event => {
+                    if (!form.checkValidity()) {
+                        event.preventDefault()
+                        event.stopPropagation()
+                    }
+                    form.classList.add('was-validated')
+                }, false)
+            })
+        })()
+    </script>
+</body>
+</html>
+
+// logout.php 
+
+<!-- logout.php -->
+<?php
+require_once 'config.php';
+require_once 'auth.php';
+
+$auth = new Auth($conn);
+$auth->logout();
+header("Location: index.php");
+exit();
+?>
+
+// navbar.php 
+
+<?php
+// navbar.php
+// No need to include config.php and auth.php here since they're already included in the parent file
+?>
+<nav class="navbar navbar-expand-lg navbar-light bg-light">
+    <div class="container">
+        <a class="navbar-brand" href="index.php">Daily Journal</a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav me-auto">
+                <?php if (isset($_SESSION['user_id'])): ?>
+                    <li class="nav-item">
+                        <a class="nav-link" href="journals.php">My Journals</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="calendar.php">Calendar View</a>
+                    </li>
+                <?php endif; ?>
+            </ul>
+            <ul class="navbar-nav">
+                <?php if (isset($_SESSION['user_id'])): ?>
+                    <li class="nav-item">
+                        <a class="nav-link" href="profile.php">Profile</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="logout.php">Logout</a>
+                    </li>
+                <?php else: ?>
+                    <li class="nav-item">
+                        <a class="nav-link" href="login.php">Login</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="register.php">Register</a>
+                    </li>
+                <?php endif; ?>
+            </ul>
+        </div>
+    </div>
+</nav
+
+// profile.php 
+
+<?php
+require_once 'config.php';
+require_once 'auth.php';
+
+$auth = new Auth($conn);
+
+// Check if user is logged in
+if (!$auth->isLoggedIn()) {
+    header("Location: login.php");
+    exit();
+}
+
+$user = $auth->getUserDetails($_SESSION['user_id']);
+
+// Handle form submissions
+if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+    $message_type = "danger";
+    
+    if (isset($_POST['update_profile'])) {
+        $username = trim($_POST['username']);
+        $email = trim($_POST['email']);
+        
+        if ($auth->updateUser($_SESSION['user_id'], $username, $email)) {
+            $_SESSION['message'] = "Profile updated successfully!";
+            $_SESSION['message_type'] = "success";
+            $user = $auth->getUserDetails($_SESSION['user_id']);
+        } else {
+            $_SESSION['message'] = "Failed to update profile.";
+        }
+    }
+    
+    if (isset($_POST['update_password'])) {
+        $current_password = $_POST['current_password'];
+        $new_password = $_POST['new_password'];
+        $confirm_password = $_POST['confirm_password'];
+        
+        if ($new_password !== $confirm_password) {
+            $_SESSION['message'] = "New passwords do not match.";
+        } elseif ($auth->updatePassword($_SESSION['user_id'], $new_password)) {
+            $_SESSION['message'] = "Password updated successfully!";
+            $_SESSION['message_type'] = "success";
+        } else {
+            $_SESSION['message'] = "Failed to update password.";
+        }
+    }
+    
+    // Redirect to refresh the page and show message
+    header("Location: profile.php");
+    exit();
+}
+?>
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Profile - <?php echo htmlspecialchars($user['username']); ?></title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #f8f9fa;
+        }
+        .profile-header {
+            background: #fff;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            padding: 2rem;
+            margin-bottom: 2rem;
+        }
+        .profile-avatar {
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            background: #e9ecef;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2.5rem;
+            color: #6c757d;
+            margin-bottom: 1rem;
+        }
+        .nav-pills .nav-link {
+            color: #495057;
+            padding: 1rem 1.5rem;
+            border-radius: 0.5rem;
+            margin-right: 0.5rem;
+        }
+        .nav-pills .nav-link.active {
+            background-color: #007bff;
+            color: white;
+        }
+        .nav-pills .nav-link i {
+            margin-right: 0.5rem;
+        }
+        .tab-content {
+            background: white;
+            border-radius: 10px;
+            padding: 2rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        .form-label {
+            font-weight: 500;
+            color: #495057;
+        }
+        .card {
+            border: none;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            margin-bottom: 1rem;
+        }
+        .stat-card {
+            text-align: center;
+            padding: 1.5rem;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        .stat-number {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #007bff;
+            margin-bottom: 0.5rem;
+        }
+        .stat-label {
+            color: #6c757d;
+            font-size: 0.9rem;
+        }
+        .activity-item {
+            padding: 1rem;
+            border-bottom: 1px solid #e9ecef;
+        }
+        .activity-item:last-child {
+            border-bottom: none;
+        }
+        .activity-date {
+            font-size: 0.85rem;
+            color: #6c757d;
+        }
+    </style>
+</head>
+<body>
+    <?php include 'navbar.php'; ?>
+
+    <div class="container-fluid">
+        <div class="container py-5">
+            <!-- Profile Header -->
+            <div class="profile-header d-flex justify-content-between align-items-start">
+                <div class="d-flex align-items-center">
+                    <div class="profile-avatar me-4">
+                        <i class="fas fa-user"></i>
+                    </div>
+                    <div>
+                        <h1 class="h3 mb-2"><?php echo htmlspecialchars($user['username']); ?></h1>
+                        <p class="text-muted mb-0">
+                            <i class="fas fa-clock me-2"></i>
+                            Member since <?php echo date('F j, Y', strtotime($user['created_at'])); ?>
+                        </p>
+                    </div>
+                </div>
+                <a href="journals.php" class="btn btn-primary">
+                    <i class="fas fa-book me-2"></i>My Journals
+                </a>
+            </div>
+
+            <!-- Status Message -->
+            <?php if (isset($_SESSION['message'])): ?>
+                <div class="alert alert-<?php echo $_SESSION['message_type']; ?> alert-dismissible fade show">
+                    <?php 
+                    echo $_SESSION['message'];
+                    unset($_SESSION['message']);
+                    unset($_SESSION['message_type']);
+                    ?>
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            <?php endif; ?>
+
+            <!-- Navigation Pills -->
+            <ul class="nav nav-pills mb-4">
+                <li class="nav-item">
+                    <a class="nav-link active" data-bs-toggle="pill" href="#overview">
+                        <i class="fas fa-home"></i>Overview
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" data-bs-toggle="pill" href="#edit-profile">
+                        <i class="fas fa-user-edit"></i>Edit Profile
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" data-bs-toggle="pill" href="#security">
+                        <i class="fas fa-shield-alt"></i>Security
+                    </a>
+                </li>
+            </ul>
+
+            <!-- Tab Content -->
+            <div class="tab-content">
+                <!-- Overview Tab -->
+                <div class="tab-pane fade show active" id="overview">
+                    <div class="row g-4">
+                        <!-- Statistics -->
+                        <div class="col-md-4">
+                            <div class="stat-card">
+                                <div class="stat-number">
+                                    <?php
+                                    $stmt = $conn->prepare("SELECT COUNT(*) as count FROM journals WHERE user_id = ?");
+                                    $stmt->bind_param("i", $_SESSION['user_id']);
+                                    $stmt->execute();
+                                    $result = $stmt->get_result()->fetch_assoc();
+                                    echo $result['count'];
+                                    ?>
+                                </div>
+                                <div class="stat-label">Total Journal Entries</div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="stat-card">
+                                <div class="stat-number">
+                                    <?php
+                                    $stmt = $conn->prepare("SELECT COUNT(*) as count FROM journal_images WHERE journal_id IN (SELECT id FROM journals WHERE user_id = ?)");
+                                    $stmt->bind_param("i", $_SESSION['user_id']);
+                                    $stmt->execute();
+                                    $result = $stmt->get_result()->fetch_assoc();
+                                    echo $result['count'];
+                                    ?>
+                                </div>
+                                <div class="stat-label">Images Uploaded</div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="stat-card">
+                                <div class="stat-number">
+                                    <?php
+                                    $stmt = $conn->prepare("SELECT COUNT(*) as count FROM journals WHERE user_id = ? AND entry_date = CURDATE()");
+                                    $stmt->bind_param("i", $_SESSION['user_id']);
+                                    $stmt->execute();
+                                    $result = $stmt->get_result()->fetch_assoc();
+                                    echo $result['count'];
+                                    ?>
+                                </div>
+                                <div class="stat-label">Entries Today</div>
+                            </div>
+                        </div>
+
+                        <!-- Recent Activity -->
+                        <div class="col-12">
+                            <h3 class="h5 mb-4">Recent Activity</h3>
+                            <div class="card">
+                                <?php
+                                $stmt = $conn->prepare("
+                                    SELECT title, entry_date 
+                                    FROM journals 
+                                    WHERE user_id = ? 
+                                    ORDER BY created_at DESC 
+                                    LIMIT 5
+                                ");
+                                $stmt->bind_param("i", $_SESSION['user_id']);
+                                $stmt->execute();
+                                $activities = $stmt->get_result();
+                                
+                                if ($activities->num_rows > 0):
+                                    while ($activity = $activities->fetch_assoc()):
+                                ?>
+                                    <div class="activity-item">
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <div>
+                                                <i class="fas fa-pen me-2 text-primary"></i>
+                                                Created journal entry: <?php echo htmlspecialchars($activity['title']); ?>
+                                            </div>
+                                            <span class="activity-date">
+                                                <?php echo date('M j, Y', strtotime($activity['entry_date'])); ?>
+                                            </span>
+                                        </div>
+                                    </div>
+                                <?php 
+                                    endwhile;
+                                else:
+                                ?>
+                                    <div class="p-4 text-center text-muted">
+                                        No recent activity
+                                    </div>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Edit Profile Tab -->
+                <div class="tab-pane fade" id="edit-profile">
+                    <form method="post" class="card">
+                        <div class="card-body">
+                            <h3 class="h5 mb-4">Edit Profile Information</h3>
+                            <div class="mb-3">
+                                <label class="form-label">Username</label>
+                                <input type="text" name="username" class="form-control" 
+                                       value="<?php echo htmlspecialchars($user['username']); ?>" required>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Email</label>
+                                <input type="email" name="email" class="form-control" 
+                                       value="<?php echo htmlspecialchars($user['email']); ?>" required>
+                            </div>
+                            <button type="submit" name="update_profile" class="btn btn-primary">
+                                <i class="fas fa-save me-2"></i>Save Changes
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Security Tab -->
+                <div class="tab-pane fade" id="security">
+                    <form method="post" class="card">
+                        <div class="card-body">
+                            <h3 class="h5 mb-4">Change Password</h3>
+                            <div class="mb-3">
+                                <label class="form-label">Current Password</label>
+                                <input type="password" name="current_password" class="form-control" required>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">New Password</label>
+                                <input type="password" name="new_password" class="form-control" required>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Confirm New Password</label>
+                                <input type="password" name="confirm_password" class="form-control" required>
+                            </div>
+                            <button type="submit" name="update_password" class="btn btn-primary">
+                                <i class="fas fa-key me-2"></i>Update Password
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
+
+// register.php 
+
+<?php
+require_once 'config.php';
+require_once 'auth.php';
+
+$auth = new Auth($conn);
+
+// Redirect if already logged in
+if ($auth->isLoggedIn()) {
+    header("Location: journals.php");
+    exit();
+}
+
+$error = '';
+$success = '';
+
+if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+    $username = trim($_POST['username']);
+    $email = trim($_POST['email']);
+    $password = $_POST['password'];
+    $confirm_password = $_POST['confirm_password'];
+    
+    // Validation
+    if (empty($username) || empty($email) || empty($password) || empty($confirm_password)) {
+        $error = "All fields are required.";
+    } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        $error = "Please enter a valid email address.";
+    } elseif ($password !== $confirm_password) {
+        $error = "Passwords do not match.";
+    } elseif (strlen($password) < 6) {
+        $error = "Password must be at least 6 characters long.";
+    } else {
+        if ($auth->register($username, $password, $email)) {
+            $success = "Registration successful! Please login.";
+        } else {
+            $error = "Username or email already exists.";
+        }
+    }
+}
+?>
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Register - Daily Journal</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css" rel="stylesheet">
+    <style>
+        body {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            padding: 40px 0;
+        }
+        .register-container {
+            max-width: 500px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+        .register-header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+        .register-logo {
+            width: 80px;
+            height: 80px;
+            background: #fff;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 1rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .register-logo i {
+            font-size: 2rem;
+            color: #007bff;
+        }
+        .register-card {
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .register-card .card-body {
+            padding: 2rem;
+        }
+        .form-control {
+            border: 2px solid #e9ecef;
+            padding: 0.75rem 1rem;
+            font-size: 1rem;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+        }
+        .form-control:focus {
+            border-color: #007bff;
+            box-shadow: 0 0 0 0.2rem rgba(0,123,255,0.15);
+        }
+        .input-group-text {
+            border: 2px solid #e9ecef;
+            background: #f8f9fa;
+            border-right: none;
+            border-top-left-radius: 8px;
+            border-bottom-left-radius: 8px;
+        }
+        .input-group .form-control {
+            border-left: none;
+            border-top-left-radius: 0;
+            border-bottom-left-radius: 0;
+        }
+        .btn-register {
+            padding: 0.75rem 1.5rem;
+            font-size: 1rem;
+            border-radius: 8px;
+            width: 100%;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-top: 1rem;
+        }
+        .login-link {
+            text-align: center;
+            margin-top: 1.5rem;
+            color: #6c757d;
+        }
+        .login-link a {
+            color: #007bff;
+            text-decoration: none;
+            font-weight: 500;
+        }
+        .login-link a:hover {
+            text-decoration: underline;
+        }
+        .error-shake {
+            animation: shake 0.5s;
+        }
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); }
+            20%, 40%, 60%, 80% { transform: translateX(5px); }
+        }
+        .password-toggle {
+            cursor: pointer;
+            padding: 0.75rem 1rem;
+            background: #f8f9fa;
+            border: 2px solid #e9ecef;
+            border-left: none;
+            border-top-right-radius: 8px;
+            border-bottom-right-radius: 8px;
+        }
+        .password-strength {
+            height: 5px;
+            margin-top: 0.5rem;
+            border-radius: 2.5px;
+            transition: all 0.3s ease;
+        }
+        .terms {
+            font-size: 0.9rem;
+            color: #6c757d;
+            margin-top: 1rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="register-container">
+        <!-- Register Header -->
+        <div class="register-header">
+            <div class="register-logo">
+                <i class="fas fa-user-plus"></i>
+            </div>
+            <h1 class="h3 mb-3">Create Account</h1>
+            <p class="text-muted">Join us to start your journaling journey</p>
+        </div>
+
+        <!-- Register Form -->
+        <div class="register-card">
+            <div class="card-body">
+                <?php if ($error): ?>
+                    <div class="alert alert-danger alert-dismissible fade show error-shake" role="alert">
+                        <i class="fas fa-exclamation-circle me-2"></i>
+                        <?php echo $error; ?>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                <?php endif; ?>
+
+                <?php if ($success): ?>
+                    <div class="alert alert-success alert-dismissible fade show" role="alert">
+                        <i class="fas fa-check-circle me-2"></i>
+                        <?php echo $success; ?>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                <?php endif; ?>
+
+                <form method="post" class="needs-validation" novalidate>
+                    <!-- Username Field -->
+                    <div class="mb-3">
+                        <label class="form-label">Username</label>
+                        <div class="input-group">
+                            <span class="input-group-text">
+                                <i class="fas fa-user"></i>
+                            </span>
+                            <input type="text" name="username" class="form-control" 
+                                   value="<?php echo isset($_POST['username']) ? htmlspecialchars($_POST['username']) : ''; ?>"
+                                   placeholder="Choose a username" required>
+                        </div>
+                        <small class="text-muted">Username must be unique</small>
+                    </div>
+
+                    <!-- Email Field -->
+                    <div class="mb-3">
+                        <label class="form-label">Email</label>
+                        <div class="input-group">
+                            <span class="input-group-text">
+                                <i class="fas fa-envelope"></i>
+                            </span>
+                            <input type="email" name="email" class="form-control" 
+                                   value="<?php echo isset($_POST['email']) ? htmlspecialchars($_POST['email']) : ''; ?>"
+                                   placeholder="Enter your email" required>
+                        </div>
+                    </div>
+
+                    <!-- Password Field -->
+                    <div class="mb-3">
+                        <label class="form-label">Password</label>
+                        <div class="input-group">
+                            <span class="input-group-text">
+                                <i class="fas fa-lock"></i>
+                            </span>
+                            <input type="password" name="password" class="form-control" 
+                                   id="password" placeholder="Create a password" required
+                                   onkeyup="checkPasswordStrength(this.value)">
+                            <span class="password-toggle" onclick="togglePassword('password', 'toggleIcon')">
+                                <i class="far fa-eye" id="toggleIcon"></i>
+                            </span>
+                        </div>
+                        <div class="password-strength" id="passwordStrength"></div>
+                        <small class="text-muted">Minimum 6 characters</small>
+                    </div>
+
+                    <!-- Confirm Password Field -->
+                    <div class="mb-3">
+                        <label class="form-label">Confirm Password</label>
+                        <div class="input-group">
+                            <span class="input-group-text">
+                                <i class="fas fa-lock"></i>
+                            </span>
+                            <input type="password" name="confirm_password" class="form-control" 
+                                   id="confirmPassword" placeholder="Confirm your password" required>
+                            <span class="password-toggle" onclick="togglePassword('confirmPassword', 'toggleIconConfirm')">
+                                <i class="far fa-eye" id="toggleIconConfirm"></i>
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- Terms and Conditions -->
+                    <div class="terms">
+                        <div class="form-check">
+                            <input type="checkbox" class="form-check-input" id="terms" required>
+                            <label class="form-check-label" for="terms">
+                                I agree to the <a href="#" data-bs-toggle="modal" data-bs-target="#termsModal">Terms & Conditions</a>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Submit Button -->
+                    <button type="submit" class="btn btn-primary btn-register">
+                        <i class="fas fa-user-plus me-2"></i>Create Account
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Login Link -->
+        <div class="login-link">
+            Already have an account? <a href="login.php">Login here</a>
+        </div>
+    </div>
+
+    <!-- Terms Modal -->
+    <div class="modal fade" id="termsModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Terms & Conditions</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <h6>1. Privacy</h6>
+                    <p>We respect your privacy and protect your personal information.</p>
+                    
+                    <h6>2. Content</h6>
+                    <p>You are responsible for the content you create in your journal.</p>
+                    
+                    <h6>3. Security</h6>
+                    <p>We implement security measures to protect your data.</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Toggle password visibility
+        function togglePassword(inputId, iconId) {
+            const input = document.getElementById(inputId);
+            const icon = document.getElementById(iconId);
+            
+            if (input.type === 'password') {
+                input.type = 'text';
+                icon.classList.remove('fa-eye');
+                icon.classList.add('fa-eye-slash');
+            } else {
+                input.type = 'password';
+                icon.classList.remove('fa-eye-slash');
+                icon.classList.add('fa-eye');
+            }
+        }
+
+        // Check password strength
+        function checkPasswordStrength(password) {
+            const strengthBar = document.getElementById('passwordStrength');
+            let strength = 0;
+            
+            if (password.length >= 6) strength += 25;
+            if (password.match(/[A-Z]/)) strength += 25;
+            if (password.match(/[0-9]/)) strength += 25;
+            if (password.match(/[^A-Za-z0-9]/)) strength += 25;
+
+            strengthBar.style.width = strength + '%';
+            
+            if (strength <= 25) {
+                strengthBar.style.backgroundColor = '#dc3545';
+            } else if (strength <= 50) {
+                strengthBar.style.backgroundColor = '#ffc107';
+            } else if (strength <= 75) {
+                strengthBar.style.backgroundColor = '#17a2b8';
+            } else {
+                strengthBar.style.backgroundColor = '#28a745';
+            }
+        }
+
+        // Form validation
+        (function () {
+            'use strict'
+            const forms = document.querySelectorAll('.needs-validation')
+            Array.from(forms).forEach(form => {
+                form.addEventListener('submit', event => {
+                    if (!form.checkValidity()) {
+                        event.preventDefault()
+                        event.stopPropagation()
+                    }
+                    form.classList.add('was-validated')
+                }, false)
+            })
+        })()
+    </script>
+</body>
+</html>
